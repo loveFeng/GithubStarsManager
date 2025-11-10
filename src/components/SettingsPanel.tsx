@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Bot, 
   Plus, 
@@ -49,6 +49,10 @@ export const SettingsPanel: React.FC = () => {
     setActiveWebDAVConfig,
     setLastBackup,
     setLanguage,
+    setRepositories,
+    setReleases,
+    addCustomCategory,
+    deleteCustomCategory,
   } = useAppStore();
 
   const [showAIForm, setShowAIForm] = useState(false);
@@ -60,6 +64,134 @@ export const SettingsPanel: React.FC = () => {
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const [showCustomPrompt, setShowCustomPrompt] = useState(false);
+
+  // Search weights editor state (used by AIService scoring)
+  type Weights = {
+    nameExact: number; namePartial: number; fullNamePartial: number;
+    description: number; customDescription: number;
+    topics: number; aiTags: number; customTags: number;
+    aiSummary: number; platforms: number; language: number;
+    popularity: number;
+  };
+
+  const defaultWeights: Weights = {
+    nameExact: 0.5,
+    namePartial: 0.3,
+    fullNamePartial: 0.35,
+    description: 0.3,
+    customDescription: 0.32,
+    topics: 0.25,
+    aiTags: 0.22,
+    customTags: 0.24,
+    aiSummary: 0.15,
+    platforms: 0.18,
+    language: 0.12,
+    popularity: 0.05,
+  };
+
+  const [weightsForm, setWeightsForm] = useState<Weights>(defaultWeights);
+
+  const loadWeightsFromStorage = (): Weights | null => {
+    try {
+      const raw = localStorage.getItem('github-stars-search-weights');
+      if (!raw) return null;
+      const obj = JSON.parse(raw);
+      return { ...defaultWeights, ...obj } as Weights;
+    } catch {
+      return null;
+    }
+  };
+
+  useEffect(() => {
+    const loaded = loadWeightsFromStorage();
+    if (loaded) setWeightsForm(loaded);
+  }, []);
+
+  const applyPreset = (preset: 'balanced' | 'exact' | 'semantic' | 'popularity') => {
+    let next = { ...defaultWeights };
+    if (preset === 'exact') {
+      next = {
+        nameExact: 0.8,
+        namePartial: 0.5,
+        fullNamePartial: 0.5,
+        description: 0.2,
+        customDescription: 0.22,
+        topics: 0.15,
+        aiTags: 0.12,
+        customTags: 0.14,
+        aiSummary: 0.1,
+        platforms: 0.12,
+        language: 0.1,
+        popularity: 0.03,
+      };
+    } else if (preset === 'semantic') {
+      next = {
+        nameExact: 0.3,
+        namePartial: 0.25,
+        fullNamePartial: 0.25,
+        description: 0.35,
+        customDescription: 0.36,
+        topics: 0.32,
+        aiTags: 0.35,
+        customTags: 0.32,
+        aiSummary: 0.4,
+        platforms: 0.22,
+        language: 0.12,
+        popularity: 0.03,
+      };
+    } else if (preset === 'popularity') {
+      next = {
+        nameExact: 0.35,
+        namePartial: 0.25,
+        fullNamePartial: 0.25,
+        description: 0.25,
+        customDescription: 0.25,
+        topics: 0.2,
+        aiTags: 0.2,
+        customTags: 0.2,
+        aiSummary: 0.12,
+        platforms: 0.15,
+        language: 0.1,
+        popularity: 0.2,
+      };
+    } // balanced uses default
+    setWeightsForm(next);
+  };
+
+  const exportWeights = async () => {
+    const data = JSON.stringify(weightsForm, null, 2);
+    try {
+      await navigator.clipboard.writeText(data);
+      alert(t('已复制到剪贴板。', 'Copied to clipboard.'));
+    } catch {
+      try {
+        const blob = new Blob([data], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `search-weights-${new Date().toISOString().slice(0,10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } catch {
+        // noop
+      }
+    }
+  };
+
+  const importWeights = () => {
+    const raw = window.prompt(t('粘贴权重 JSON：', 'Paste weights JSON:'));
+    if (!raw) return;
+    try {
+      const obj = JSON.parse(raw);
+      const merged = { ...defaultWeights, ...obj } as Weights;
+      setWeightsForm(merged);
+      alert(t('已加载，请点击保存以生效。', 'Loaded. Click Save to persist.'));
+    } catch (e) {
+      alert(t('解析失败，请检查 JSON 格式。', 'Failed to parse JSON.'));
+    }
+  };
 
   const [aiForm, setAIForm] = useState({
     name: '',
@@ -297,12 +429,106 @@ export const SettingsPanel: React.FC = () => {
       
       if (backupContent) {
         const backupData = JSON.parse(backupContent);
-        
-        // Note: In a real implementation, you would restore the data here
-        // For now, we'll just show a success message
+
+        // 1) 恢复仓库与发布
+        if (Array.isArray(backupData.repositories)) {
+          setRepositories(backupData.repositories);
+        }
+        if (Array.isArray(backupData.releases)) {
+          setReleases(backupData.releases);
+        }
+
+        // 2) 恢复自定义分类（全部替换）
+        try {
+          // 先清空现有自定义分类
+          if (Array.isArray(customCategories)) {
+            for (const cat of customCategories) {
+              if (cat && cat.id) {
+                deleteCustomCategory(cat.id);
+              }
+            }
+          }
+          // 再添加备份中的自定义分类
+          if (Array.isArray(backupData.customCategories)) {
+            for (const cat of backupData.customCategories) {
+              if (cat && cat.id && cat.name) {
+                addCustomCategory({ ...cat, isCustom: true });
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('恢复自定义分类时发生问题：', e);
+        }
+
+        // 3) 合并 AI 配置（保留现有密钥；备份中密钥为***时不覆盖）
+        try {
+          if (Array.isArray(backupData.aiConfigs)) {
+            const currentMap = new Map(aiConfigs.map((c: AIConfig) => [c.id, c]));
+            for (const cfg of backupData.aiConfigs as AIConfig[]) {
+              if (!cfg || !cfg.id) continue;
+              const existing = currentMap.get(cfg.id);
+              const isMasked = cfg.apiKey === '***';
+              if (existing) {
+                updateAIConfig(cfg.id, {
+                  name: cfg.name,
+                  baseUrl: cfg.baseUrl,
+                  model: cfg.model,
+                  customPrompt: cfg.customPrompt,
+                  useCustomPrompt: cfg.useCustomPrompt,
+                  concurrency: cfg.concurrency,
+                  // 仅当备份未掩码时才覆盖 apiKey
+                  apiKey: isMasked ? existing.apiKey : cfg.apiKey,
+                  // 保留现有 isActive 状态
+                  isActive: existing.isActive,
+                });
+              } else {
+                addAIConfig({
+                  ...cfg,
+                  apiKey: isMasked ? '' : cfg.apiKey,
+                  isActive: false,
+                });
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('恢复 AI 配置时发生问题：', e);
+        }
+
+        // 4) 合并 WebDAV 配置（保留现有密码；备份中密码为***时不覆盖）
+        try {
+          if (Array.isArray(backupData.webdavConfigs)) {
+            const currentMap = new Map(webdavConfigs.map((c: WebDAVConfig) => [c.id, c]));
+            for (const cfg of backupData.webdavConfigs as WebDAVConfig[]) {
+              if (!cfg || !cfg.id) continue;
+              const existing = currentMap.get(cfg.id);
+              const isMasked = cfg.password === '***';
+              if (existing) {
+                updateWebDAVConfig(cfg.id, {
+                  name: cfg.name,
+                  url: cfg.url,
+                  username: cfg.username,
+                  path: cfg.path,
+                  // 仅当备份未掩码时才覆盖密码
+                  password: isMasked ? existing.password : cfg.password,
+                  // 保留现有 isActive 状态
+                  isActive: existing.isActive,
+                });
+              } else {
+                addWebDAVConfig({
+                  ...cfg,
+                  password: isMasked ? '' : cfg.password,
+                  isActive: false,
+                });
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('恢复 WebDAV 配置时发生问题：', e);
+        }
+
         alert(t(
-          `找到备份文件: ${latestBackup}。请注意：完整的数据恢复功能需要在实际部署中实现。`,
-          `Found backup file: ${latestBackup}. Note: Full data restoration needs to be implemented in actual deployment.`
+          `已从备份恢复数据：仓库 ${backupData.repositories?.length ?? 0}，发布 ${backupData.releases?.length ?? 0}，自定义分类 ${backupData.customCategories?.length ?? 0}。`,
+          `Data restored from backup: repositories ${backupData.repositories?.length ?? 0}, releases ${backupData.releases?.length ?? 0}, custom categories ${backupData.customCategories?.length ?? 0}.`
         ));
       }
     } catch (error) {
@@ -361,6 +587,191 @@ Focus on practicality and accurate categorization to help users quickly understa
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
+      {/* Search Weights Configuration */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center">⚖️</div>
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                {t('搜索权重配置', 'Search Weight Configuration')}
+              </h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                {t('调整语义排序各项权重，保存后实时生效（保存在本地）。', 'Tune relevance weights for ranking; saved locally and applied immediately.')}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Names */}
+          <div className="p-4 rounded-lg bg-gray-50 dark:bg-gray-700/30 border border-gray-200 dark:border-gray-700">
+            <h4 className="font-medium text-gray-900 dark:text-white mb-3">{t('名称匹配', 'Name Match')}</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className="text-sm text-gray-700 dark:text-gray-300">
+                <span className="block mb-1" title={t('完全匹配仓库名的加权（0–1，越大越偏好精确匹配）', 'Boost for exact repo name match (0–1, higher favors exact matches)')}>nameExact</span>
+                <input type="number" min="0" max="1" step="0.01" value={weightsForm.nameExact}
+                  title={t('建议范围：0–1；将于失焦时自动限制到范围内', 'Suggested: 0–1; clamped on blur')}
+                  onBlur={(e) => setWeightsForm(v => ({ ...v, nameExact: Math.max(0, Math.min(1, Number(e.target.value) || 0)) }))}
+                  onChange={(e) => setWeightsForm(v => ({ ...v, nameExact: Number(e.target.value) || 0 }))}
+                  className="w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800" />
+              </label>
+              <label className="text-sm text-gray-700 dark:text-gray-300">
+                <span className="block mb-1" title={t('部分匹配仓库名的加权（0–1）', 'Boost for partial repo name match (0–1)')}>namePartial</span>
+                <input type="number" min="0" max="1" step="0.01" value={weightsForm.namePartial}
+                  title={t('建议范围：0–1；将于失焦时自动限制到范围内', 'Suggested: 0–1; clamped on blur')}
+                  onBlur={(e) => setWeightsForm(v => ({ ...v, namePartial: Math.max(0, Math.min(1, Number(e.target.value) || 0)) }))}
+                  onChange={(e) => setWeightsForm(v => ({ ...v, namePartial: Number(e.target.value) || 0 }))}
+                  className="w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800" />
+              </label>
+              <label className="text-sm text-gray-700 dark:text-gray-300">
+                <span className="block mb-1" title={t('部分匹配完整名（owner/repo）的加权（0–1）', 'Boost for partial owner/repo match (0–1)')}>fullNamePartial</span>
+                <input type="number" min="0" max="1" step="0.01" value={weightsForm.fullNamePartial}
+                  title={t('建议范围：0–1；将于失焦时自动限制到范围内', 'Suggested: 0–1; clamped on blur')}
+                  onBlur={(e) => setWeightsForm(v => ({ ...v, fullNamePartial: Math.max(0, Math.min(1, Number(e.target.value) || 0)) }))}
+                  onChange={(e) => setWeightsForm(v => ({ ...v, fullNamePartial: Number(e.target.value) || 0 }))}
+                  className="w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800" />
+              </label>
+            </div>
+          </div>
+
+          {/* Text fields */}
+          <div className="p-4 rounded-lg bg-gray-50 dark:bg-gray-700/30 border border-gray-200 dark:border-gray-700">
+            <h4 className="font-medium text-gray-900 dark:text-white mb-3">{t('文本/摘要', 'Text/Summary')}</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className="text-sm text-gray-700 dark:text-gray-300">
+                <span className="block mb-1" title={t('GitHub 描述字段匹配（0–1）', 'GitHub description field match (0–1)')}>description</span>
+                <input type="number" min="0" max="1" step="0.01" value={weightsForm.description}
+                  title={t('建议范围：0–1；将于失焦时自动限制到范围内', 'Suggested: 0–1; clamped on blur')}
+                  onBlur={(e) => setWeightsForm(v => ({ ...v, description: Math.max(0, Math.min(1, Number(e.target.value) || 0)) }))}
+                  onChange={(e) => setWeightsForm(v => ({ ...v, description: Number(e.target.value) || 0 }))}
+                  className="w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800" />
+              </label>
+              <label className="text-sm text-gray-700 dark:text-gray-300">
+                <span className="block mb-1" title={t('自定义描述字段匹配（0–1）', 'Custom description field match (0–1)')}>customDescription</span>
+                <input type="number" min="0" max="1" step="0.01" value={weightsForm.customDescription}
+                  title={t('建议范围：0–1；将于失焦时自动限制到范围内', 'Suggested: 0–1; clamped on blur')}
+                  onBlur={(e) => setWeightsForm(v => ({ ...v, customDescription: Math.max(0, Math.min(1, Number(e.target.value) || 0)) }))}
+                  onChange={(e) => setWeightsForm(v => ({ ...v, customDescription: Number(e.target.value) || 0 }))}
+                  className="w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800" />
+              </label>
+              <label className="text-sm text-gray-700 dark:text-gray-300">
+                <span className="block mb-1" title={t('AI 生成的摘要匹配（0–1）', 'AI‑generated summary match (0–1)')}>aiSummary</span>
+                <input type="number" min="0" max="1" step="0.01" value={weightsForm.aiSummary}
+                  title={t('建议范围：0–1；将于失焦时自动限制到范围内', 'Suggested: 0–1; clamped on blur')}
+                  onBlur={(e) => setWeightsForm(v => ({ ...v, aiSummary: Math.max(0, Math.min(1, Number(e.target.value) || 0)) }))}
+                  onChange={(e) => setWeightsForm(v => ({ ...v, aiSummary: Number(e.target.value) || 0 }))}
+                  className="w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800" />
+              </label>
+            </div>
+          </div>
+
+          {/* Tags */}
+          <div className="p-4 rounded-lg bg-gray-50 dark:bg-gray-700/30 border border-gray-200 dark:border-gray-700">
+            <h4 className="font-medium text-gray-900 dark:text-white mb-3">{t('标签/话题', 'Tags/Topics')}</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <label className="text-sm text-gray-700 dark:text-gray-300">
+                <span className="block mb-1" title={t('GitHub Topics 匹配（0–1）', 'GitHub topics match (0–1)')}>topics</span>
+                <input type="number" min="0" max="1" step="0.01" value={weightsForm.topics}
+                  title={t('建议范围：0–1；将于失焦时自动限制到范围内', 'Suggested: 0–1; clamped on blur')}
+                  onBlur={(e) => setWeightsForm(v => ({ ...v, topics: Math.max(0, Math.min(1, Number(e.target.value) || 0)) }))}
+                  onChange={(e) => setWeightsForm(v => ({ ...v, topics: Number(e.target.value) || 0 }))}
+                  className="w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800" />
+              </label>
+              <label className="text-sm text-gray-700 dark:text-gray-300">
+                <span className="block mb-1" title={t('AI 生成标签匹配（0–1）', 'AI‑generated tags match (0–1)')}>aiTags</span>
+                <input type="number" min="0" max="1" step="0.01" value={weightsForm.aiTags}
+                  title={t('建议范围：0–1；将于失焦时自动限制到范围内', 'Suggested: 0–1; clamped on blur')}
+                  onBlur={(e) => setWeightsForm(v => ({ ...v, aiTags: Math.max(0, Math.min(1, Number(e.target.value) || 0)) }))}
+                  onChange={(e) => setWeightsForm(v => ({ ...v, aiTags: Number(e.target.value) || 0 }))}
+                  className="w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800" />
+              </label>
+              <label className="text-sm text-gray-700 dark:text-gray-300">
+                <span className="block mb-1" title={t('自定义标签匹配（0–1）', 'Custom tags match (0–1)')}>customTags</span>
+                <input type="number" min="0" max="1" step="0.01" value={weightsForm.customTags}
+                  title={t('建议范围：0–1；将于失焦时自动限制到范围内', 'Suggested: 0–1; clamped on blur')}
+                  onBlur={(e) => setWeightsForm(v => ({ ...v, customTags: Math.max(0, Math.min(1, Number(e.target.value) || 0)) }))}
+                  onChange={(e) => setWeightsForm(v => ({ ...v, customTags: Number(e.target.value) || 0 }))}
+                  className="w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800" />
+              </label>
+            </div>
+          </div>
+
+          {/* Platforms/Language/Popularity */}
+          <div className="p-4 rounded-lg bg-gray-50 dark:bg-gray-700/30 border border-gray-200 dark:border-gray-700">
+            <h4 className="font-medium text-gray-900 dark:text-white mb-3">{t('平台/语言/热度', 'Platform/Language/Popularity')}</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <label className="text-sm text-gray-700 dark:text-gray-300">
+                <span className="block mb-1" title={t('平台匹配（mac/windows/linux/…）（0–1）', 'Platform match (mac/windows/linux/…)(0–1)')}>platforms</span>
+                <input type="number" min="0" max="1" step="0.01" value={weightsForm.platforms}
+                  title={t('建议范围：0–1；将于失焦时自动限制到范围内', 'Suggested: 0–1; clamped on blur')}
+                  onBlur={(e) => setWeightsForm(v => ({ ...v, platforms: Math.max(0, Math.min(1, Number(e.target.value) || 0)) }))}
+                  onChange={(e) => setWeightsForm(v => ({ ...v, platforms: Number(e.target.value) || 0 }))}
+                  className="w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800" />
+              </label>
+              <label className="text-sm text-gray-700 dark:text-gray-300">
+                <span className="block mb-1" title={t('编程语言匹配（0–1）', 'Programming language match (0–1)')}>language</span>
+                <input type="number" min="0" max="1" step="0.01" value={weightsForm.language}
+                  title={t('建议范围：0–1；将于失焦时自动限制到范围内', 'Suggested: 0–1; clamped on blur')}
+                  onBlur={(e) => setWeightsForm(v => ({ ...v, language: Math.max(0, Math.min(1, Number(e.target.value) || 0)) }))}
+                  onChange={(e) => setWeightsForm(v => ({ ...v, language: Number(e.target.value) || 0 }))}
+                  className="w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800" />
+              </label>
+              <label className="text-sm text-gray-700 dark:text-gray-300">
+                <span className="block mb-1" title={t('按 Star 数的对数加权（建议≤0.2）', 'Log stars boost (suggest ≤ 0.2)')}>popularity</span>
+                <input type="number" min="0" max="1" step="0.01" value={weightsForm.popularity}
+                  title={t('建议范围：0–0.2；将于失焦时自动限制到范围内', 'Suggested: 0–0.2; clamped on blur')}
+                  onBlur={(e) => setWeightsForm(v => ({ ...v, popularity: Math.max(0, Math.min(1, Number(e.target.value) || 0)) }))}
+                  onChange={(e) => setWeightsForm(v => ({ ...v, popularity: Number(e.target.value) || 0 }))}
+                  className="w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800" />
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <button
+            onClick={() => {
+              try {
+                localStorage.setItem('github-stars-search-weights', JSON.stringify(weightsForm));
+                alert(t('已保存搜索权重。', 'Search weights saved.'));
+              } catch (e) {
+                alert(t('保存失败，请检查浏览器存储权限。', 'Failed to save. Check browser storage permissions.'));
+              }
+            }}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            {t('保存', 'Save')}
+          </button>
+          <button
+            onClick={() => {
+              try {
+                localStorage.removeItem('github-stars-search-weights');
+                setWeightsForm(defaultWeights);
+                alert(t('已重置为默认权重。', 'Reset to default weights.'));
+              } catch (e) {
+                // ignore
+              }
+            }}
+            className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+          >
+            {t('恢复默认', 'Reset Defaults')}
+          </button>
+
+          {/* Presets */}
+          <div className="h-6 w-px bg-gray-300 dark:bg-gray-600 mx-1" />
+          <span className="text-sm text-gray-600 dark:text-gray-400 mr-1">{t('快捷预设：', 'Presets:')}</span>
+          <button onClick={() => applyPreset('balanced')} className="px-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded hover:bg-gray-200 dark:hover:bg-gray-600">{t('均衡', 'Balanced')}</button>
+          <button onClick={() => applyPreset('exact')} className="px-3 py-1.5 text-sm bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 rounded hover:bg-purple-200 dark:hover:bg-purple-800">{t('精准匹配', 'Exact‑match')}</button>
+          <button onClick={() => applyPreset('semantic')} className="px-3 py-1.5 text-sm bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 rounded hover:bg-green-200 dark:hover:bg-green-800">{t('语义优先', 'Semantic')}</button>
+          <button onClick={() => applyPreset('popularity')} className="px-3 py-1.5 text-sm bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200 rounded hover:bg-yellow-200 dark:hover:bg-yellow-800">{t('热度优先', 'Popularity')}</button>
+
+          {/* Import/Export */}
+          <div className="h-6 w-px bg-gray-300 dark:bg-gray-600 mx-1" />
+          <button onClick={exportWeights} className="px-3 py-1.5 text-sm bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded hover:bg-blue-200 dark:hover:bg-blue-800">{t('导出JSON', 'Export JSON')}</button>
+          <button onClick={importWeights} className="px-3 py-1.5 text-sm bg-indigo-100 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200 rounded hover:bg-indigo-200 dark:hover:bg-indigo-800">{t('导入JSON', 'Import JSON')}</button>
+        </div>
+      </div>
       {/* Update Check */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
         <div className="flex items-center space-x-3 mb-4">

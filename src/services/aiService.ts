@@ -153,18 +153,38 @@ Focus on practicality and accurate categorization to help users quickly understa
 
   private parseAIResponse(content: string): { summary: string; tags: string[]; platforms: string[] } {
     try {
-      // Try to extract JSON from the response
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        return {
-          summary: parsed.summary || (this.language === 'zh' ? '无法生成概述' : 'Unable to generate summary'),
-          tags: Array.isArray(parsed.tags) ? parsed.tags.slice(0, 5) : [],
-          platforms: Array.isArray(parsed.platforms) ? parsed.platforms.slice(0, 8) : [],
-        };
+      const sanitized = this.extractJsonBlock(content);
+      if (sanitized) {
+        const parsed = JSON.parse(sanitized);
+        const summary = typeof parsed.summary === 'string' && parsed.summary.trim()
+          ? parsed.summary.trim()
+          : (this.language === 'zh' ? '无法生成概述' : 'Unable to generate summary');
+
+        const rawTags: string[] = Array.isArray(parsed.tags)
+          ? parsed.tags
+          : typeof parsed.tags === 'string'
+            ? parsed.tags.split(/[,;\n]/)
+            : [];
+
+        const rawPlatforms: string[] = Array.isArray(parsed.platforms)
+          ? parsed.platforms
+          : typeof parsed.platforms === 'string'
+            ? parsed.platforms.split(/[,;\n]/)
+            : [];
+
+        const tags = [...new Set(
+          rawTags
+            .map(String)
+            .map(t => t.trim())
+            .filter(Boolean)
+        )].slice(0, 5);
+
+        const platforms = this.normalizePlatforms(rawPlatforms).slice(0, 8);
+
+        return { summary, tags, platforms };
       }
-      
-      // Fallback parsing
+
+      // Fallback parsing（无 JSON 时退回首句摘要）
       return {
         summary: content.substring(0, 50) + '...',
         tags: [],
@@ -178,6 +198,63 @@ Focus on practicality and accurate categorization to help users quickly understa
         platforms: [],
       };
     }
+  }
+
+  // 尝试从模型输出中提取 JSON 代码块，并进行轻量纠错（去代码围栏/尾逗号）
+  private extractJsonBlock(text: string): string | null {
+    try {
+      let body = text.trim();
+      // 优先截取 ```json ... ``` 代码块
+      const fencedJson = body.match(/```json\s*([\s\S]*?)```/i);
+      if (fencedJson && fencedJson[1]) {
+        body = fencedJson[1];
+      } else {
+        const fenced = body.match(/```\s*([\s\S]*?)```/);
+        if (fenced && fenced[1]) body = fenced[1];
+      }
+
+      // 若仍未截取到，则取首个大括号包裹内容
+      const brace = body.match(/\{[\s\S]*\}/);
+      if (brace) body = brace[0];
+
+      if (!body) return null;
+
+      // 轻量清洗：去除可能的注释/尾逗号
+      let cleaned = body
+        .replace(/^[\uFEFF\s]+/, '') // 去 BOM/首空白
+        .replace(/,\s*}/g, '}')
+        .replace(/,\s*]/g, ']');
+
+      // 简单校验必须字段存在时再返回
+      if (/["']summary["']|["']tags["']|["']platforms["']/.test(cleaned)) {
+        return cleaned;
+      }
+      return cleaned || null;
+    } catch {
+      return null;
+    }
+  }
+
+  private normalizePlatforms(platforms: any[]): string[] {
+    const allow = new Set(['mac', 'windows', 'linux', 'ios', 'android', 'docker', 'web', 'cli']);
+    const map: Record<string, string> = {
+      macos: 'mac', osx: 'mac', mac: 'mac', darwin: 'mac',
+      win: 'windows', windows: 'windows',
+      linux: 'linux', gnu: 'linux', 'gnu/linux': 'linux',
+      ios: 'ios', iphone: 'ios', ipad: 'ios',
+      android: 'android',
+      docker: 'docker', container: 'docker', containerized: 'docker',
+      web: 'web', browser: 'web', frontend: 'web',
+      cli: 'cli', 'command-line': 'cli', terminal: 'cli'
+    };
+    const out: string[] = [];
+    for (const p of platforms || []) {
+      const key = String(p || '').trim().toLowerCase();
+      if (!key) continue;
+      const norm = map[key] || key;
+      if (allow.has(norm)) out.push(norm);
+    }
+    return [...new Set(out)];
   }
 
   private fallbackAnalysis(repository: Repository): { summary: string; tags: string[]; platforms: string[] } {
@@ -360,6 +437,7 @@ Focus on practicality and accurate categorization to help users quickly understa
     // Score repositories based on relevance
     const scoredRepos = repositories.map(repo => {
       let score = 0;
+      const weights = this.getSearchWeights();
       
       const searchableFields = {
         name: repo.name.toLowerCase(),
@@ -386,32 +464,32 @@ Focus on practicality and accurate categorization to help users quickly understa
       // Calculate relevance score
       queryWords.forEach(word => {
         // Name matches (highest weight)
-        if (searchableFields.name.includes(word)) score += 0.4;
-        if (searchableFields.fullName.includes(word)) score += 0.35;
+        if (searchableFields.name.includes(word)) score += weights.namePartial;
+        if (searchableFields.fullName.includes(word)) score += weights.fullNamePartial;
         
         // Description matches
-        if (searchableFields.description.includes(word)) score += 0.3;
-        if (searchableFields.customDescription.includes(word)) score += 0.32;
+        if (searchableFields.description.includes(word)) score += weights.description;
+        if (searchableFields.customDescription.includes(word)) score += weights.customDescription;
         
         // Tags and topics matches
-        if (searchableFields.topics.includes(word)) score += 0.25;
-        if (searchableFields.aiTags.includes(word)) score += 0.22;
-        if (searchableFields.customTags.includes(word)) score += 0.24;
+        if (searchableFields.topics.includes(word)) score += weights.topics;
+        if (searchableFields.aiTags.includes(word)) score += weights.aiTags;
+        if (searchableFields.customTags.includes(word)) score += weights.customTags;
         
         // AI summary matches
-        if (searchableFields.aiSummary.includes(word)) score += 0.15;
+        if (searchableFields.aiSummary.includes(word)) score += weights.aiSummary;
         
         // Platform and language matches
-        if (searchableFields.aiPlatforms.includes(word)) score += 0.18;
-        if (searchableFields.language.includes(word)) score += 0.12;
+        if (searchableFields.aiPlatforms.includes(word)) score += weights.platforms;
+        if (searchableFields.language.includes(word)) score += weights.language;
       });
 
       // Boost for exact matches
-      if (searchableFields.name === normalizedQuery) score += 0.5;
-      if (searchableFields.name.includes(normalizedQuery)) score += 0.3;
+      if (searchableFields.name === normalizedQuery) score += weights.nameExact;
+      if (searchableFields.name.includes(normalizedQuery)) score += weights.namePartial;
       
       // Popularity boost (logarithmic to avoid overwhelming other factors)
-      const popularityScore = Math.log10(repo.stargazers_count + 1) * 0.05;
+      const popularityScore = Math.log10(repo.stargazers_count + 1) * weights.popularity;
       score += popularityScore;
 
       return { repo, score };
@@ -422,6 +500,40 @@ Focus on practicality and accurate categorization to help users quickly understa
       .filter(item => item.score > 0)
       .sort((a, b) => b.score - a.score)
       .map(item => item.repo);
+  }
+
+  // 搜索权重：支持通过 localStorage 覆盖默认值（键：github-stars-search-weights）
+  private getSearchWeights() {
+    const defaults = {
+      nameExact: 0.5,
+      namePartial: 0.3,
+      fullNamePartial: 0.35,
+      description: 0.3,
+      customDescription: 0.32,
+      topics: 0.25,
+      aiTags: 0.22,
+      customTags: 0.24,
+      aiSummary: 0.15,
+      platforms: 0.18,
+      language: 0.12,
+      popularity: 0.05,
+    } as const;
+    try {
+      if (typeof window !== 'undefined') {
+        const raw = window.localStorage.getItem('github-stars-search-weights');
+        if (!raw) return defaults;
+        const user = JSON.parse(raw);
+        return {
+          ...defaults,
+          ...Object.fromEntries(
+            Object.entries(user || {}).filter(([k, v]) => typeof v === 'number' && Number.isFinite(v))
+          ),
+        };
+      }
+    } catch {
+      // ignore
+    }
+    return defaults;
   }
 
   private createSearchPrompt(query: string): string {

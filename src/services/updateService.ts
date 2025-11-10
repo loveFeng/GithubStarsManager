@@ -15,8 +15,20 @@ export class UpdateService {
   private static readonly REPO_URL = 'https://raw.githubusercontent.com/AmintaCCCP/GithubStarsManager/main/versions/version-info.xml';
 
   private static getCurrentVersion(): string {
-    // 在实际应用中，这个版本号应该在构建时注入
-    // 这里暂时硬编码，你可以通过构建脚本或环境变量来动态设置
+    // 优先使用由 Vite 在构建时注入的版本号
+    try {
+      const injected = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '';
+      if (injected) return injected;
+    } catch {}
+
+    // 其次尝试从环境变量读取（Vite 的 VITE_* 变量）
+    try {
+      // @ts-ignore
+      const envVersion = (import.meta as any).env?.VITE_APP_VERSION as string | undefined;
+      if (envVersion) return envVersion;
+    } catch {}
+
+    // 兜底：保持原有版本以兼容旧构建流程
     return '0.1.6';
   }
 

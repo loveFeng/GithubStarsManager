@@ -1,8 +1,12 @@
 #!/usr/bin/env node
 
-const { execSync } = require('child_process');
-const fs = require('fs');
-const path = require('path');
+import { execSync } from 'child_process';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 console.log('🚀 开始构建桌面应用...');
 
@@ -12,7 +16,8 @@ execSync('npm run build', { stdio: 'inherit' });
 
 // 2. 创建Electron目录和文件
 console.log('⚡ 设置Electron环境...');
-const electronDir = path.join(__dirname, '../electron');
+const projectRoot = path.join(__dirname, '..');
+const electronDir = path.join(projectRoot, 'electron');
 if (!fs.existsSync(electronDir)) {
   fs.mkdirSync(electronDir, { recursive: true });
 }
@@ -37,7 +42,7 @@ function createWindow() {
       enableRemoteModule: false,
       webSecurity: true
     },
-    icon: path.join(__dirname, '../dist/icon.svg'),
+    icon: path.join(__dirname, '../assets/icon.png'),
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     show: false
   });
@@ -155,23 +160,30 @@ const electronPackageJson = {
 };
 
 fs.writeFileSync(
-  path.join(electronDir, 'package.json'), 
+  path.join(electronDir, 'package.json'),
   JSON.stringify(electronPackageJson, null, 2)
 );
 
 // 5. 安装Electron依赖
-console.log('📥 安装Electron依赖...');
-try {
-  execSync('npm install --save-dev electron electron-builder', { stdio: 'inherit' });
-} catch (error) {
-  console.error('安装依赖失败:', error.message);
-  process.exit(1);
+console.log('📥 检查Electron依赖...');
+const hasElectron = fs.existsSync(path.join(projectRoot, 'node_modules', 'electron'));
+const hasBuilder = fs.existsSync(path.join(projectRoot, 'node_modules', 'electron-builder'));
+if (!hasElectron || !hasBuilder) {
+  console.log('⏬ 未检测到依赖，开始安装 electron 和 electron-builder...');
+  try {
+    execSync('npm install --save-dev electron electron-builder', { stdio: 'inherit', cwd: projectRoot });
+  } catch (error) {
+    console.error('安装依赖失败:', error.message);
+    process.exit(1);
+  }
+} else {
+  console.log('✅ Electron 相关依赖已安装，跳过安装');
 }
 
 // 6. 构建应用
 console.log('🔨 构建桌面应用...');
 try {
-  execSync('npx electron-builder', { stdio: 'inherit' });
+  execSync('npx electron-builder', { stdio: 'inherit', cwd: projectRoot });
   console.log('✅ 桌面应用构建完成！');
   console.log('📁 构建文件位于 release/ 目录');
 } catch (error) {
