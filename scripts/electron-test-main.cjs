@@ -10,6 +10,7 @@ const path = require('path');
 app.commandLine.appendSwitch('disable-gpu');
 app.commandLine.appendSwitch('disable-software-rasterizer');
 app.commandLine.appendSwitch('no-sandbox');
+app.commandLine.appendSwitch('disable-setuid-sandbox');
 
 const DIST_INDEX = process.env.TEST_DIST_PATH || path.resolve(__dirname, '..', 'dist', 'index.html');
 const TIMEOUT_MS = parseInt(process.env.TEST_TIMEOUT_MS || '20000', 10);
@@ -24,7 +25,8 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: true,
+      // Disable renderer sandbox in CI to avoid SUID sandbox requirement
+      sandbox: false,
       webSecurity: true,
     },
   });
@@ -90,4 +92,3 @@ app.on('window-all-closed', () => {
   // Ensure process exits on Linux/Windows
   if (process.platform !== 'darwin') app.quit();
 });
-
