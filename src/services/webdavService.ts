@@ -7,6 +7,71 @@ export class WebDAVService {
     this.config = config;
   }
 
+  // 压缩JSON数据，减少传输大小
+  private compressData(content: string): string {
+    try {
+      const data = JSON.parse(content);
+      return JSON.stringify(data);
+    } catch (e) {
+      console.warn('JSON压缩失败，使用原始内容:', e);
+      return content;
+    }
+  }
+
+  // 检测文件是否过大，提供优化建议
+  private analyzeFileSize(content: string): { sizeKB: number; isLarge: boolean; suggestions: string[] } {
+    const sizeKB = Math.round(content.length / 1024);
+    const isLarge = sizeKB > 1024; // 超过1MB认为是大文件
+    const suggestions: string[] = [];
+
+    if (isLarge) {
+      suggestions.push('考虑减少备份数据量');
+      if (content.length > 5 * 1024 * 1024) { // 5MB
+        suggestions.push('文件过大，建议启用数据筛选或分片备份');
+      }
+    }
+
+    return { sizeKB, isLarge, suggestions };
+  }
+
+  // 重试机制
+  private async retryUpload<T>(
+    operation: () => Promise<T>,
+    maxRetries: number = 3,
+    delay: number = 1000
+  ): Promise<T> {
+    let lastError: Error;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return await operation();
+      } catch (error) {
+        lastError = error as Error;
+
+        if (attempt === maxRetries) {
+          throw lastError;
+        }
+
+        // 对特定错误进行重试
+        const shouldRetry =
+          error.message.includes('超时') ||
+          error.message.includes('timeout') ||
+          error.message.includes('NetworkError') ||
+          error.message.includes('fetch');
+
+        if (!shouldRetry) {
+          throw lastError;
+        }
+
+        console.warn(`上传失败，第${attempt}次重试 (${delay}ms后):`, error.message);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        delay *= 2; // 指数退避
+      }
+    }
+
+    throw lastError!;
+  }
+
   private getAuthHeader(): string {
     const credentials = btoa(`${this.config.username}:${this.config.password}`);
     return `Basic ${credentials}`;
@@ -119,51 +184,70 @@ export class WebDAVService {
         throw new Error('WebDAV URL必须以 http:// 或 https:// 开头');
       }
 
+      // 分析文件大小并压缩数据
+      const fileAnalysis = this.analyzeFileSize(content);
+      const compressedContent = this.compressData(content);
+
+      if (fileAnalysis.isLarge) {
+        console.warn(`大文件备份 (${fileAnalysis.sizeKB}KB):`, fileAnalysis.suggestions.join(', '));
+      }
+
+      console.log(`文件大小: ${fileAnalysis.sizeKB}KB，压缩后: ${Math.round(compressedContent.length / 1024)}KB`);
+
       // 确保目录存在
       await this.ensureDirectoryExists();
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30秒超时
+      // 动态计算超时时间：基于压缩后文件大小，最小60秒，最大300秒
+      const finalSizeKB = Math.round(compressedContent.length / 1024);
+      const dynamicTimeout = Math.max(60000, Math.min(300000, finalSizeKB * 100)); // 每KB 100ms
+      console.log(`设置超时时间: ${dynamicTimeout}ms`);
 
-      try {
-        const response = await fetch(this.getFullPath(filename), {
-          method: 'PUT',
-          headers: {
-            'Authorization': this.getAuthHeader(),
-            'Content-Type': 'application/json',
-          },
-          body: content,
-          signal: controller.signal,
-        });
-        
-        clearTimeout(timeoutId);
+      const uploadOperation = async (): Promise<boolean> => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), dynamicTimeout);
 
-        if (!response.ok) {
-          if (response.status === 401) {
-            throw new Error('身份验证失败。请检查用户名和密码。');
+        try {
+          const response = await fetch(this.getFullPath(filename), {
+            method: 'PUT',
+            headers: {
+              'Authorization': this.getAuthHeader(),
+              'Content-Type': 'application/json',
+            },
+            body: compressedContent,
+            signal: controller.signal,
+          });
+
+          clearTimeout(timeoutId);
+
+          if (!response.ok) {
+            if (response.status === 401) {
+              throw new Error('身份验证失败。请检查用户名和密码。');
+            }
+            if (response.status === 403) {
+              throw new Error('访问被拒绝。请检查指定路径的权限。');
+            }
+            if (response.status === 404) {
+              throw new Error('路径未找到。请验证WebDAV URL和路径是否正确。');
+            }
+            if (response.status === 507) {
+              throw new Error('服务器存储空间不足。');
+            }
+            throw new Error(`上传失败，HTTP状态码 ${response.status}: ${response.statusText}`);
           }
-          if (response.status === 403) {
-            throw new Error('访问被拒绝。请检查指定路径的权限。');
+
+          return true;
+        } catch (fetchError) {
+          clearTimeout(timeoutId);
+
+          if (fetchError.name === 'AbortError') {
+            throw new Error(`上传超时 (${finalSizeKB}KB文件，${dynamicTimeout/1000}秒限制)。建议检查网络连接或联系管理员优化服务器配置。`);
           }
-          if (response.status === 404) {
-            throw new Error('路径未找到。请验证WebDAV URL和路径是否正确。');
-          }
-          if (response.status === 507) {
-            throw new Error('服务器存储空间不足。');
-          }
-          throw new Error(`上传失败，HTTP状态码 ${response.status}: ${response.statusText}`);
+
+          throw fetchError;
         }
-        
-        return true;
-      } catch (fetchError) {
-        clearTimeout(timeoutId);
-        
-        if (fetchError.name === 'AbortError') {
-          throw new Error('上传超时。文件可能太大或网络连接缓慢。');
-        }
-        
-        throw fetchError;
-      }
+      };
+
+      return await this.retryUpload(uploadOperation);
     } catch (error) {
       if (error.message.includes('身份验证失败') || 
           error.message.includes('访问被拒绝') || 
