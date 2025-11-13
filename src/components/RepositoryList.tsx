@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Bot, ChevronDown, Pause, Play } from 'lucide-react';
+import { Bot, ChevronDown, Pause, Play, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { RepositoryCard } from './RepositoryCard';
 
 import { Repository } from '../types';
@@ -75,42 +75,50 @@ export const RepositoryList: React.FC<RepositoryListProps> = ({
     );
   });
 
-  // Infinite scroll (瀑布流按需加载)
-  const LOAD_BATCH = 50;
-  const [visibleCount, setVisibleCount] = useState(LOAD_BATCH);
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(50);
 
-  const startIndex = filteredRepositories.length === 0 ? 0 : 1;
-  const endIndex = Math.min(visibleCount, filteredRepositories.length);
-  const visibleRepositories = filteredRepositories.slice(0, visibleCount);
+  const totalPages = Math.ceil(filteredRepositories.length / itemsPerPage) || 1;
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = Math.min(startIndex + itemsPerPage, filteredRepositories.length);
+  const paginatedRepositories = filteredRepositories.slice(startIndex, startIndex + itemsPerPage);
 
-  // Reset visible count when filters or data change
   useEffect(() => {
-    setVisibleCount(LOAD_BATCH);
+    // Reset to first page when data or filters change
+    setCurrentPage(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCategory, repositories, filteredRepositories.length]);
 
-  // IntersectionObserver to load more on demand
-  useEffect(() => {
-    const node = sentinelRef.current;
-    if (!node) return;
+  const handlePageChange = (page: number) => {
+    setCurrentPage(Math.max(1, Math.min(page, totalPages)));
+  };
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const entry = entries[0];
-        if (entry.isIntersecting) {
-          setVisibleCount((count) => {
-            if (count >= filteredRepositories.length) return count;
-            return Math.min(count + LOAD_BATCH, filteredRepositories.length);
-          });
-        }
-      },
-      { root: null, rootMargin: '200px', threshold: 0 }
-    );
+  const getPageNumbers = () => {
+    const delta = 2;
+    const range: Array<number> = [];
+    const rangeWithDots: Array<number | string> = [];
 
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [filteredRepositories.length]);
+    for (let i = Math.max(2, currentPage - delta); i <= Math.min(totalPages - 1, currentPage + delta); i++) {
+      range.push(i);
+    }
+
+    if (currentPage - delta > 2) {
+      rangeWithDots.push(1, '...');
+    } else {
+      rangeWithDots.push(1);
+    }
+
+    rangeWithDots.push(...range);
+
+    if (currentPage + delta < totalPages - 1) {
+      rangeWithDots.push('...', totalPages);
+    } else if (totalPages > 1) {
+      rangeWithDots.push(totalPages);
+    }
+
+    return rangeWithDots;
+  };
 
   const handleAIAnalyze = async (analyzeUnanalyzedOnly: boolean = false, analyzeFailedOnly: boolean = false) => {
     if (!githubToken) {
@@ -469,8 +477,8 @@ export const RepositoryList: React.FC<RepositoryListProps> = ({
           <div className="flex items-center justify-between">
             <div>
               {t(
-                `第 ${startIndex}-${endIndex} / 共 ${filteredRepositories.length} 个仓库`,
-                `Showing ${startIndex}-${endIndex} of ${filteredRepositories.length} repositories`
+                `第 ${filteredRepositories.length === 0 ? 0 : startIndex + 1}-${endIndex} / 共 ${filteredRepositories.length} 个仓库`,
+                `Showing ${filteredRepositories.length === 0 ? 0 : startIndex + 1}-${endIndex} of ${filteredRepositories.length} repositories`
               )}
               {repositories.length !== filteredRepositories.length && (
                 <span className="ml-2 text-blue-600 dark:text-blue-400">
@@ -499,9 +507,84 @@ export const RepositoryList: React.FC<RepositoryListProps> = ({
         </div>
       </div>
 
+      {/* Pagination Controls */}
+      <div className="flex items-center justify-end">
+        <div className="flex items-center space-x-4">
+          {/* Items per page selector */}
+          <div className="flex items-center space-x-2">
+            <span className="text-sm text-gray-600 dark:text-gray-400">{t('每页:', 'Per page:')}</span>
+            <select
+              value={itemsPerPage}
+              onChange={(e) => {
+                setItemsPerPage(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+            >
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+              <option value={200}>200</option>
+              <option value={500}>500</option>
+            </select>
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center space-x-1">
+              <button
+                onClick={() => handlePageChange(1)}
+                disabled={currentPage === 1}
+                className="p-2 rounded-lg bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <ChevronsLeft className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => handlePageChange(currentPage - 1)}
+                disabled={currentPage === 1}
+                className="p-2 rounded-lg bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+
+              {getPageNumbers().map((page, index) => (
+                <button
+                  key={index}
+                  onClick={() => typeof page === 'number' ? handlePageChange(page) : undefined}
+                  disabled={typeof page !== 'number'}
+                  className={`px-3 py-2 rounded-lg text-sm ${
+                    page === currentPage
+                      ? 'bg-blue-600 text-white'
+                      : typeof page === 'number'
+                      ? 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
+                      : 'text-gray-400 cursor-default'
+                  }`}
+                >
+                  {page}
+                </button>
+              ))}
+
+              <button
+                onClick={() => handlePageChange(currentPage + 1)}
+                disabled={currentPage === totalPages}
+                className="p-2 rounded-lg bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => handlePageChange(totalPages)}
+                disabled={currentPage === totalPages}
+                className="p-2 rounded-lg bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <ChevronsRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Repository Grid with consistent card widths */}
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-        {visibleRepositories.map(repo => (
+        {paginatedRepositories.map(repo => (
           <RepositoryCard 
             key={repo.id}
             repository={repo} 
@@ -510,11 +593,6 @@ export const RepositoryList: React.FC<RepositoryListProps> = ({
           />
         ))}
       </div>
-
-      {/* Sentinel for on-demand loading */}
-      {visibleCount < filteredRepositories.length && (
-        <div ref={sentinelRef} className="h-8" />
-      )}
     </div>
   );
 };
