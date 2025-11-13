@@ -1,0 +1,58 @@
+name: Build Desktop (Win/Linux/macOS)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web assets
+        run: npm run build
+
+      - name: Build Electron package
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 关闭 macOS 自动签名，避免未配置证书导致失败
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ matrix.os == 'macos-latest' && 'false' || '' }}
+        shell: bash
+        run: |
+          set -e
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            npx electron-builder --linux -p always
+          elif [[ "$RUNNER_OS" == "Windows" ]]; then
+            npx electron-builder --win -p always
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            npx electron-builder --mac dmg -p always
+          fi
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ runner.os }}-artifacts
+          path: release/**
+

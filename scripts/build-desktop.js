@@ -182,8 +182,51 @@ if (!hasElectron || !hasBuilder) {
 
 // 6. 构建应用
 console.log('🔨 构建桌面应用...');
+
+// 依据当前平台尽可能同时打包 Windows 与 Linux
+// - 在 Linux 上：尝试同时打包 --linux 与 --win（需要 wine）
+// - 在 Windows 上：仅打包 --win，并提示 Linux 需在 Linux 环境执行
+// - 在 macOS 上：默认打包 --linux，若安装 wine 则附带 --win
+const platform = process.platform; // 'win32' | 'linux' | 'darwin'
+
+const canUseWine = () => {
+  try {
+    execSync('wine --version', { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const args = [];
+
+if (platform === 'linux') {
+  args.push('--linux');
+  if (canUseWine()) {
+    args.push('--win');
+  } else {
+    console.warn('⚠️ 未检测到 wine，跳过 Windows 安装包构建。安装 wine 后可同时构建 Windows 包。');
+  }
+} else if (platform === 'win32') {
+  args.push('--win');
+  console.warn('ℹ️ 在 Windows 上无法直接构建 Linux 包。如需 Linux 包，请在 Linux 环境或容器中执行。');
+} else if (platform === 'darwin') {
+  // 用户只要求 Windows+Linux，这里不主动打包 mac 目标
+  args.push('--linux');
+  if (canUseWine()) {
+    args.push('--win');
+  } else {
+    console.warn('⚠️ 未检测到 wine，跳过 Windows 安装包构建。macOS 上构建 Windows 需要 wine（受系统限制可能不可用）。');
+  }
+} else {
+  // 其他平台兜底：尝试默认行为
+  console.warn(`⚠️ 未知平台: ${platform}，使用 electron-builder 默认目标。`);
+}
+
 try {
-  execSync('npx electron-builder', { stdio: 'inherit', cwd: projectRoot });
+  const cmd = ['npx', 'electron-builder', ...args].join(' ');
+  console.log(`▶️ 执行：${cmd}`);
+  execSync(cmd, { stdio: 'inherit', cwd: projectRoot });
   console.log('✅ 桌面应用构建完成！');
   console.log('📁 构建文件位于 release/ 目录');
 } catch (error) {
