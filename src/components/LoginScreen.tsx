@@ -3,12 +3,15 @@ import { AlertCircle, ArrowRight, Github, Key, Lock, Moon, Sun } from 'lucide-re
 import { useAppStore } from '../store/useAppStore';
 import { useShallow } from 'zustand/react/shallow';
 import { backend } from '../services/backendAdapter';
+import { bootstrapDataAfterAuth } from '../services/autoSync';
+import { importBrowserDataToBackendIfNeeded } from '../services/browserDataImport';
 import { safeReadText } from '../utils/clipboardUtils';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
+import type { GitHubUser } from '../types';
 
 type LoginStep = 'api-secret' | 'github-token' | 'checking';
 
@@ -38,6 +41,14 @@ export const LoginScreen: React.FC = () => {
     setTheme: state.setTheme,
   })));
 
+  const finishAuthenticatedSession = async (userData: GitHubUser) => {
+    setGitHubAuthViaBackend(true);
+    // Pull SQLite before flipping isAuthenticated so the main UI does not open empty.
+    await bootstrapDataAfterAuth();
+    await importBrowserDataToBackendIfNeeded();
+    setUser(userData);
+  };
+
   useEffect(() => {
     let cancelled = false;
 
@@ -57,8 +68,8 @@ export const LoginScreen: React.FC = () => {
         if (session?.authenticated && session.hasGitHubToken) {
           setIsLoading(true);
           const userData = await backend.getCurrentUser();
-          setGitHubAuthViaBackend(true);
-          setUser(userData as unknown as import('../types').GitHubUser);
+          if (cancelled) return;
+          await finishAuthenticatedSession(userData as unknown as GitHubUser);
           return;
         }
 
@@ -77,7 +88,8 @@ export const LoginScreen: React.FC = () => {
 
     void bootstrap();
     return () => { cancelled = true; };
-  }, [language, setGitHubAuthViaBackend, setUser]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot session probe on mount
+  }, [language]);
 
   const handleApiSecretLogin = async () => {
     if (!apiSecret.trim()) {
@@ -93,8 +105,7 @@ export const LoginScreen: React.FC = () => {
       const session = await backend.getSession();
       if (session?.hasGitHubToken) {
         const userData = await backend.getCurrentUser();
-        setGitHubAuthViaBackend(true);
-        setUser(userData as unknown as import('../types').GitHubUser);
+        await finishAuthenticatedSession(userData as unknown as GitHubUser);
         return;
       }
       setStep('github-token');
@@ -121,8 +132,7 @@ export const LoginScreen: React.FC = () => {
     try {
       await backend.saveGitHubToken(token.trim(), true);
       const userData = await backend.getCurrentUser();
-      setGitHubAuthViaBackend(true);
-      setUser(userData as unknown as import('../types').GitHubUser);
+      await finishAuthenticatedSession(userData as unknown as GitHubUser);
     } catch (err) {
       setError(
         err instanceof Error

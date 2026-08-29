@@ -43,17 +43,17 @@
 | **远程下载 (aria2)** | 通过 aria2 JSON-RPC 将 Release 资产推送到远程下载 |
 | **诊断日志** | 前后端统一日志查看器，支持 Debug 捕获模式 |
 | **双语 Wiki 跳转** | 根据仓库语言跳转到 Deepwiki (EN) 或 zread (ZH) |
-| **Web 与 Docker** | 单镜像全栈容器或静态站点部署，无需桌面安装包 |
+| **Web 与 Docker** | 纯网页应用 — 单镜像全栈容器（SPA + `/api` + MCP）；无桌面客户端 |
 
-### 可选后端服务
+### 后端（必需）
 
-部署 Express + SQLite 后端以实现：
+网页应用需要 Express + SQLite（已包含在 Docker 全栈镜像中）：
 
-- **跨设备同步** — 在不同浏览器和设备间共享数据
-- **无 CORS 代理** — AI 和 WebDAV 请求通过服务器转发，避免浏览器 CORS 限制
-- **加密令牌存储** — API 密钥安全存储，不暴露在浏览器中
-- **网络代理转发** — 所有出站请求（GitHub、AI、WebDAV）通过 HTTP/SOCKS5 代理转发
-- **RPC 下载代理** — 通过服务器转发 aria2 下载请求，密钥加密存储
+- **跨设备同步** — SQLite 为权威数据源，跨浏览器与设备一致
+- **无 CORS 代理** — GitHub、AI、WebDAV、Embedding、aria2 经 `/api` 转发
+- **加密令牌存储** — API 密钥留在服务端；浏览器使用 HttpOnly 会话 Cookie
+- **网络代理转发** — 可配置经 HTTP/SOCKS5 转发出站请求
+- **RPC 下载代理** — 经服务器转发 aria2 下载，密钥加密存储
 
 ---
 
@@ -215,44 +215,66 @@
 - **状态管理**: Zustand
 - **图标**: Lucide React + Font Awesome
 - **构建工具**: Vite
-- **部署**: Netlify
+- **部署**: Docker 全栈镜像（网页应用）
 
 ## 快速开始
 
-### Docker 部署（自托管推荐）
+本项目为 **纯 Web 应用**（浏览器 + Docker），已无桌面 / Electron 客户端。
 
-单镜像全栈 — 网页、`/api`、MCP 同源。启动前设置 `API_SECRET`：
+### Docker 部署与本地测试（推荐）
+
+单镜像全栈 — 网页、`/api`、MCP 同源：
 
 ```bash
 echo 'API_SECRET=替换为足够长的随机密钥' > .env
-docker compose up -d
-# http://localhost:8080
+docker compose up -d --build
+# 打开 http://localhost:8080 — 用 API_SECRET 登录，再连接 GitHub PAT
+curl http://localhost:8080/api/health
 ```
 
-HTTPS 反代（Caddy/Traefik）、SQLite 限制、备份与升级步骤见 [DOCKER_zh.md](DOCKER_zh.md)。
+本地重建、冒烟清单、HTTPS、备份与局域网 HTTP 说明见 [DOCKER_zh.md](DOCKER_zh.md)。
 
-### 1. 克隆项目
+### 源码迭代前端（可选）
+
 ```bash
 git clone https://github.com/AmintaCCCP/GithubStarsManager.git
 cd GithubStarsManager
-```
-
-### 2. 安装依赖
-```bash
 npm install
+npm run dev:all    # Vite + Express（或分别 npm run dev / npm run dev:server）
 ```
 
-### 3. 启动开发服务器
+接近生产的会话登录、代理与 SQLite 持久化，请用上面的 Docker 流程验证。
+
+### 后端（网页应用必需）
+
+生产与 Docker 以 Express + SQLite 为唯一数据与出站代理（全栈镜像已内置）：
+
+- **跨设备同步** — SQLite 为权威数据源
+- **无 CORS 代理** — GitHub / AI / WebDAV / Embedding / aria2 经 `/api` 转发
+- **会话登录** — `API_SECRET` 登录后使用 HttpOnly Cookie；密钥留在服务端
+
+#### 仅启动后端
+
 ```bash
+cd server
+npm install
 npm run dev
 ```
 
-> 💡 本地使用 `npm run dev` 时，AI 与 WebDAV 可能因 CORS 失败。可启动后端（`cd server && npm run dev`）或使用 Docker 全栈镜像代理请求。
+#### 环境变量
 
-### 4. 构建生产版本
-```bash
-npm run build
-```
+| 变量 | 必填 | 说明 |
+|------|------|------|
+| `API_SECRET` | 是（Docker / 生产） | `/api` 会话登录密钥 |
+| `ENCRYPTION_KEY` | 建议设置 | 加密存储用 AES-256 密钥；未设置时在数据卷内自动生成 |
+| `PORT` | 否 | 端口（默认 `3000`） |
+
+#### 登录（Docker / 全栈）
+
+1. 打开 `http://localhost:8080`
+2. 输入 `API_SECRET` 建立会话
+3. 按提示输入 GitHub PAT（加密保存在服务端）
+4. 登录后从 SQLite 加载数据（重新登录同样会恢复）
 
 ## 🤖 AI服务配置
 
@@ -278,7 +300,7 @@ npm run build
 - **协议级测试** — 连接测试执行真实的协议握手，而非简单 TCP 连接
 - **加密存储** — 代理密码使用 AES-256-GCM 加密存储
 
-在设置 → 网络标签页中配置（连接后端服务器时可用）。
+在设置 → 网络标签页中配置（登录后端后可用）。
 
 ![network](upload/network.png)
 
@@ -292,7 +314,7 @@ npm run build
 4. 测试连接后保存
 5. Release 资产按钮将自动把下载任务推送到 aria2
 
-支持有后端和纯前端两种模式（浏览器直连 aria2）。
+需连接后端（Docker 全栈或本地 server）；配置后下载经服务器代理转发。
 
 ## 🧠 向量语义搜索（可选）
 
@@ -336,7 +358,7 @@ npm run build
 
 **开启方式：** 设置 → MCP 服务 → 打开开关。面板会显示端点地址、Token 以及一键复制（JSON）的 Agent 配置。
 
-> 💡 MCP Token 与后端 `API_SECRET` 相互独立。纯前端（无后端）模式不显示 MCP 设置页。
+> 💡 MCP Token 与后端 `API_SECRET` 相互独立。登录后（Docker / 全栈）才会显示 MCP 设置页。
 
 **暴露的工具（全部只读）：**
 
@@ -379,74 +401,9 @@ WebDAV 一律经后端代理（`/api/proxy/webdav`）。当页面是 HTTPS、NAS
 
 ## 🚀 部署
 
-### Netlify部署
-1. Fork本项目到您的GitHub账户
-2. 在Netlify中连接您的GitHub仓库
-3. 配置构建设置：
-   - Build command: `npm run build`
-   - Publish directory: `dist`
-4. 部署
+**推荐：** 全栈 Docker — 见 [DOCKER_zh.md](DOCKER_zh.md)。
 
-### 其他平台
-项目构建后生成静态文件，可以部署到任何静态网站托管服务：
-- Vercel
-- GitHub Pages
-- Cloudflare Pages
-- 自建服务器
-
-### Docker 部署
-
-推荐使用全栈单镜像 `ghcr.io/amintacccp/github-stars-manager-fullstack`。在 `.env` 中设置 `API_SECRET` 后：
-
-```bash
-docker compose up -d
-```
-
-完整说明（HTTPS、SQLite、备份、从旧版分离部署迁移）见 [DOCKER_zh.md](DOCKER_zh.md)。英文见 [DOCKER.md](DOCKER.md)。
-
-> 若镜像为私有，需先 `docker login ghcr.io`（`read:packages` 权限的 [PAT](https://github.com/settings/tokens)）。
-
-### 🖥️ 后端服务器（纯 Web 必需）
-
-生产部署以 Express + SQLite 为唯一数据与代理出口（Docker 单镜像已内置）。后端提供：
-
-- **跨设备同步**: 在不同浏览器和设备间共享数据（SQLite 为主存储）
-- **无 CORS 代理**: GitHub / AI / WebDAV / aria2 请求经服务器转发
-- **令牌安全**: API 密钥加密存储在服务器；浏览器使用 HttpOnly 会话 Cookie
-
-#### 快速启动（Docker）
-```bash
-echo 'API_SECRET=your-secret' > .env
-docker compose up -d
-```
-Web 界面在 8080 端口，数据保存在 `backend-data` 卷。详见 [DOCKER_zh.md](DOCKER_zh.md)。
-
-可选 `.env` 配置：
-```bash
-ENCRYPTION_KEY=your-key
-IMAGE_TAG=0.7.8   # 固定全栈镜像版本（默认 latest）
-```
-
-#### 手动启动
-```bash
-cd server
-npm install
-npm run dev
-```
-
-#### 环境变量
-| 变量 | 必填 | 说明 |
-|----------|----------|-------------|
-| `API_SECRET` | 是（生产/Docker） | API 认证令牌 |
-| `ENCRYPTION_KEY` | 否 | 用于加密存储密钥的 AES-256 密钥。未设置时自动生成。 |
-| `PORT` | 否 | 服务器端口（默认：3000） |
-
-#### 前端连接后端
-1. 打开应用中的设置面板
-2. 找到「后端服务器」部分
-3. 输入 API Secret（如已配置）
-4. 点击「测试连接」，绿色指示灯表示连接成功
-5. 使用「同步到后端」/「从后端同步」来传输数据
+Vite 也会产出静态 `dist/`，但正常使用需要同源后端（登录、同步、代理）。请优先使用 Docker 全栈镜像（或在其前加反向代理），不要只部署静态站点。
 
 ## 目标用户
 
@@ -456,7 +413,7 @@ npm run dev
 
 ## 补充说明
 
-1. 后端为可选项，但对于网页部署推荐启用。不启用时，所有数据存储在浏览器 localStorage 中，请定期备份重要数据。
+1. 本应用为网页应用：正常使用需要 Docker（或 Express + 构建后的 SPA）。不带后端的纯静态托管不支持登录 / 同步 / 代理。
 2. 我不会写代码，这个应用完全由AI编写，主要满足我个人需求。如果您有新功能需求或遇到Bug，我只能尽力尝试，但无法保证成功，因为这取决于AI能否完成。😹
 
 ## 贡献

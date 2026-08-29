@@ -15,10 +15,15 @@ const mocks = vi.hoisted(() => {
         return { authenticated: true, hasGitHubToken: true };
       }),
     },
-    tryRestoreAuthFromBackend: vi.fn(async () => { calls.push('restore-auth'); return true; }),
-    syncLocalGitHubTokenToBackend: vi.fn(async () => { calls.push('sync-local-token'); }),
-    syncFromBackend: vi.fn(async () => { calls.push('sync-from-backend'); }),
-    startAutoSync: vi.fn(() => { calls.push('start-auto-sync'); return unsubscribe; }),
+    tryRestoreAuthFromBackend: vi.fn(async () => {
+      calls.push('restore-auth');
+      mocks.storeState.isAuthenticated = true;
+      return true;
+    }),
+    bootstrapDataAfterAuth: vi.fn(async () => {
+      calls.push('bootstrap-data');
+      return unsubscribe;
+    }),
     stopAutoSync: vi.fn(() => { calls.push('stop-auto-sync'); }),
     storeState: {
       isAuthenticated: false,
@@ -35,9 +40,7 @@ const mocks = vi.hoisted(() => {
 vi.mock('../../services/backendAdapter', () => ({ backend: mocks.backend }));
 vi.mock('../../services/autoSync', () => ({
   tryRestoreAuthFromBackend: mocks.tryRestoreAuthFromBackend,
-  syncLocalGitHubTokenToBackend: mocks.syncLocalGitHubTokenToBackend,
-  syncFromBackend: mocks.syncFromBackend,
-  startAutoSync: mocks.startAutoSync,
+  bootstrapDataAfterAuth: mocks.bootstrapDataAfterAuth,
   stopAutoSync: mocks.stopAutoSync,
 }));
 vi.mock('../../services/browserDataImport', () => ({
@@ -75,6 +78,15 @@ describe('useBackendLifecycle', () => {
       githubToken: null,
       githubAuthViaBackend: false,
     });
+    mocks.tryRestoreAuthFromBackend.mockImplementation(async () => {
+      mocks.calls.push('restore-auth');
+      mocks.storeState.isAuthenticated = true;
+      return true;
+    });
+    mocks.bootstrapDataAfterAuth.mockImplementation(async () => {
+      mocks.calls.push('bootstrap-data');
+      return mocks.unsubscribe;
+    });
   });
 
   it('waits for hydration and restores authentication before backend data synchronization', async () => {
@@ -86,17 +98,15 @@ describe('useBackendLifecycle', () => {
     expect(result.current.status).toBe('idle');
 
     rerender({ hasHydrated: true });
-    await waitFor(() => expect(mocks.startAutoSync).toHaveBeenCalledOnce());
+    await waitFor(() => expect(mocks.bootstrapDataAfterAuth).toHaveBeenCalledOnce());
     await waitFor(() => expect(result.current.status).toBe('ready'));
 
     expect(mocks.calls).toEqual([
       'backend.init',
       'get-session',
       'restore-auth',
-      'sync-local-token',
-      'sync-from-backend',
+      'bootstrap-data',
       'browser-import',
-      'start-auto-sync',
     ]);
   });
 
@@ -112,8 +122,7 @@ describe('useBackendLifecycle', () => {
     await waitFor(() => expect(result.current.status).toBe('ready'));
 
     expect(mocks.setState).toHaveBeenCalledWith(expect.objectContaining({ isAuthenticated: false }));
-    expect(mocks.syncFromBackend).not.toHaveBeenCalled();
-    expect(mocks.startAutoSync).not.toHaveBeenCalled();
+    expect(mocks.bootstrapDataAfterAuth).not.toHaveBeenCalled();
   });
 
   it('reports unavailable when backend probing fails', async () => {
@@ -124,8 +133,7 @@ describe('useBackendLifecycle', () => {
     await waitFor(() => expect(result.current.status).toBe('unavailable'));
 
     expect(mocks.tryRestoreAuthFromBackend).not.toHaveBeenCalled();
-    expect(mocks.syncFromBackend).not.toHaveBeenCalled();
-    expect(mocks.startAutoSync).not.toHaveBeenCalled();
+    expect(mocks.bootstrapDataAfterAuth).not.toHaveBeenCalled();
     consoleError.mockRestore();
   });
 
@@ -133,12 +141,12 @@ describe('useBackendLifecycle', () => {
     mocks.backend.isAvailable = false;
     const { result } = renderHook(() => useBackendLifecycle(true));
     await waitFor(() => expect(result.current.status).toBe('unavailable'));
-    expect(mocks.startAutoSync).not.toHaveBeenCalled();
+    expect(mocks.bootstrapDataAfterAuth).not.toHaveBeenCalled();
   });
 
   it('stops auto-sync on unmount', async () => {
     const { unmount } = renderHook(() => useBackendLifecycle(true));
-    await waitFor(() => expect(mocks.startAutoSync).toHaveBeenCalledOnce());
+    await waitFor(() => expect(mocks.bootstrapDataAfterAuth).toHaveBeenCalledOnce());
 
     unmount();
 

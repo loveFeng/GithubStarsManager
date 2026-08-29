@@ -2,10 +2,8 @@ import { useEffect, useState } from 'react';
 import { backend } from '../../services/backendAdapter';
 import { useAppStore } from '../../store/useAppStore';
 import {
-  startAutoSync,
+  bootstrapDataAfterAuth,
   stopAutoSync,
-  syncFromBackend,
-  syncLocalGitHubTokenToBackend,
   tryRestoreAuthFromBackend,
 } from '../../services/autoSync';
 import { importBrowserDataToBackendIfNeeded } from '../../services/browserDataImport';
@@ -77,16 +75,21 @@ export const useBackendLifecycle = (
           return;
         }
 
-        await syncLocalGitHubTokenToBackend();
-        if (cancelled) return;
+        // Cookie present but GitHub not connected yet — LoginScreen finishes that step.
+        if (!afterRestore.isAuthenticated) {
+          setStatus('ready');
+          return;
+        }
 
-        await syncFromBackend();
-        if (cancelled) return;
+        unsubscribe = await bootstrapDataAfterAuth();
+        if (cancelled) {
+          if (unsubscribe) stopAutoSync(unsubscribe);
+          return;
+        }
 
         await importBrowserDataToBackendIfNeeded();
         if (cancelled) return;
 
-        unsubscribe = startAutoSync();
         setStatus('ready');
       } catch (error) {
         console.error('Failed to initialize backend:', error);

@@ -16,11 +16,13 @@ echo 'API_SECRET=替换为足够长的随机密钥' > .env
 # echo 'IMAGE_TAG=0.7.8' >> .env
 # echo 'ENCRYPTION_KEY=你的加密密钥' >> .env
 
-docker compose up -d
+docker compose up -d --build
 
 # 访问 http://localhost:8080
 curl http://localhost:8080/api/health
 ```
+
+> 从本地源码测试时建议加 `--build`，使镜像与当前代码一致；仅使用已发布的 GHCR 镜像时可省略 `--build`。
 
 > **GHCR 私有镜像：** 拉取前先登录：
 > ```bash
@@ -104,13 +106,73 @@ docker run -d \
 
 首次部署可不传 `ENCRYPTION_KEY`，服务会在卷内生成并保存；迁移前请备份 `.encryption-key`。
 
-## 本地构建
+## 本地构建与冒烟测试（网页应用）
+
+本项目为 **纯 Web**（已无 Electron / 桌面安装包）。本地构建与验证推荐使用全栈 Docker 镜像：一个容器同时提供 SPA、`/api` 与 MCP。
+
+### 从源码构建并运行（Compose）
+
+```bash
+# 在仓库根目录
+echo 'API_SECRET=替换为足够长的随机密钥' > .env
+
+# 构建 Dockerfile.fullstack 并启动
+docker compose up -d --build
+
+# 健康检查
+curl http://localhost:8080/api/health
+
+# 浏览器打开
+# http://localhost:8080
+```
+
+使用与 `.env` 相同的 `API_SECRET` 登录，再按提示连接 GitHub PAT。数据保存在 Compose 卷 `backend-data`（容器内 `/app/data` 的 SQLite）。
+
+改代码后重新构建：
+
+```bash
+docker compose up -d --build
+```
+
+查看日志：
+
+```bash
+docker compose logs -f app
+```
+
+停止（保留数据）：
+
+```bash
+docker compose down
+```
+
+### 不使用 Compose 构建镜像
 
 ```bash
 docker build -f Dockerfile.fullstack -t github-stars-manager-fullstack:local .
-docker run -d -p 8080:3000 -v github-stars-data:/app/data \
-  -e API_SECRET="your-secret" github-stars-manager-fullstack:local
+docker run -d --name github-stars-manager \
+  -p 8080:3000 \
+  -v github-stars-data:/app/data \
+  -e API_SECRET="your-secret" \
+  github-stars-manager-fullstack:local
 ```
+
+### 冒烟检查清单
+
+1. `GET /api/health` 返回正常。
+2. 浏览器打开 `http://localhost:8080`，可用 `API_SECRET` 登录。
+3. 连接 GitHub Token 后能从后端加载星标仓库（重新登录应从 SQLite 恢复数据）。
+4. 可选：设置 → WebDAV / Embedding / MCP — 均走同源 `/api/proxy/*` 或 `/mcp`（不是桌面客户端）。
+
+### 单元测试 / CI（宿主机 npm，不替代 Docker 冒烟）
+
+```bash
+npm ci
+npm run check:boundaries && npm run lint && npm run typecheck && npm run test:run && npm run build
+cd server && npm ci && npm test && npm run build
+```
+
+仅跑 Vite（`npm run dev` / `npm run dev:all`）适合改 UI；会话 Cookie、代理与持久化等接近生产的行为请用上面的 Docker 流程验证。
 
 ## 从旧版分离部署（前端 + 后端）迁移
 
@@ -142,7 +204,7 @@ docker run -d -p 8080:3000 -v github-stars-data:/app/data \
 3. 复制 MCP Token 与 Agent JSON 配置
 
 - MCP Token 与 `API_SECRET` **相互独立**。
-- 纯前端（无后端）不显示 MCP 设置页。
+- 登录应用后才会显示 MCP 设置页。
 
 ## HTTPS 页面访问局域网 HTTP 服务
 

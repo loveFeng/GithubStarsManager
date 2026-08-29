@@ -20,7 +20,18 @@ npm run build              # vite build + bundle budget (<= 3000 KiB legacy entr
 git diff --check           # whitespace / merge-marker hygiene
 ```
 
-CI runs the same set (see `.github/workflows/ci.yml`), with `check:boundaries` first so a
+Optional web smoke test (Docker full-stack; no desktop client):
+
+```bash
+echo 'API_SECRET=dev-secret' > .env
+docker compose up -d --build
+curl http://localhost:8080/api/health
+# Open http://localhost:8080 and sign in with API_SECRET
+```
+
+See [DOCKER.md](DOCKER.md) / [DOCKER_zh.md](DOCKER_zh.md) for the full local build & smoke checklist.
+
+CI runs the same npm set (see `.github/workflows/ci.yml`), with `check:boundaries` first so a
 layering violation fails the job before the slower steps.
 
 ## Scope checklist

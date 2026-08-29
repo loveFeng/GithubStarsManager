@@ -45,17 +45,17 @@ GitHub Stars Manager automatically syncs your starred repos, uses AI to summariz
 | **Remote Download (aria2)** | Send release assets to aria2 for download via JSON-RPC |
 | **Diagnostic Logs** | Unified frontend/backend log viewer with debug capture mode |
 | **Bilingual Wiki Jump** | Deepwiki (EN) or zread (ZH) based on repository language |
-| **Web & Docker** | Deploy as a single full-stack container or static site — no desktop installer |
+| **Web & Docker** | Pure web app — deploy one full-stack container (SPA + `/api` + MCP); no desktop client |
 
-### Optional Backend Server
+### Backend (required)
 
-Deploy an Express + SQLite backend for:
+The web app needs Express + SQLite (included in the Docker full-stack image):
 
-- **Cross-device Sync** — Share data between browsers and devices
-- **CORS-free API Proxying** — AI and WebDAV calls route through the server
-- **Encrypted Token Storage** — API keys stored securely, never exposed to browser
-- **Network Proxy Forwarding** — Route all outbound requests (GitHub, AI, WebDAV) through HTTP/SOCKS5 proxy
-- **RPC Download Proxy** — Forward aria2 download requests through the server with encrypted secret storage
+- **Cross-device Sync** — SQLite is the source of truth across browsers and devices
+- **CORS-free API Proxying** — GitHub, AI, WebDAV, Embedding, and aria2 route through `/api`
+- **Encrypted Token Storage** — API keys stay on the server; the browser uses an HttpOnly session cookie
+- **Network Proxy Forwarding** — Route outbound requests through HTTP/SOCKS5 when configured
+- **RPC Download Proxy** — Forward aria2 downloads through the server with encrypted secret storage
 
 ---
 
@@ -188,7 +188,7 @@ Ask concise questions about a single repository directly from its card. Each con
 | **AI Config** | Configure OpenAI / Anthropic / Ollama / compatible APIs; supports custom endpoints and keys |
 | **WebDAV** | Backup config for Jianguoyun, Nextcloud, ownCloud, and standard WebDAV services |
 | **Backup** | Backup history, manual backup/restore, incremental backup |
-| **Backend Server** | Connect to self-hosted backend, API key authentication, sync status indicator |
+| **Backend / Session** | Sign in with `API_SECRET`, GitHub PAT on the server, sync status indicator |
 | **Network** | HTTP/SOCKS5 proxy config with protocol-level testing; aria2 RPC remote download setup |
 | **Category** | Category management, category sorting, default category override rules |
 | **Data Management** | Data import/export, clear local data, reset all data |
@@ -222,66 +222,63 @@ Ask concise questions about a single repository directly from its card. Each con
 
 ## 👋🏻 How to Use
 
-### 🐳 Docker (recommended for self-hosting)
+GithubStarsManager is a **web application** (browser + Docker). There is no desktop / Electron client.
 
-Single full-stack image — SPA, API, and MCP on one origin. Set `API_SECRET` before starting:
+### 🐳 Docker (recommended — run and test locally)
+
+Single full-stack image: SPA, API, and MCP on one origin.
 
 ```bash
 echo 'API_SECRET=replace-with-a-long-random-secret' > .env
-docker compose up -d
-# http://localhost:8080
+docker compose up -d --build
+# Open http://localhost:8080 — sign in with API_SECRET, then connect a GitHub PAT
+curl http://localhost:8080/api/health
 ```
 
-See [DOCKER.md](DOCKER.md) for HTTPS reverse proxy (Caddy/Traefik), SQLite limits, backup, and upgrade steps.
+Full guide (local rebuild, smoke checklist, HTTPS, backup, LAN HTTP services): [DOCKER.md](DOCKER.md).
 
-### 🤖 Run with source code
+### 🛠 Frontend iteration (Vite, optional)
 
-1. Download the source code, or clone the repository
-2. Navigate to the directory, and open a Terminal window at the downloaded folder.
-3. Run `npm install` to install dependencies and `npm run dev` to build
+For UI work without rebuilding the image each time:
 
-> 💡 When running locally with `npm run dev`, AI and WebDAV calls may fail due to CORS. Run the backend (`cd server && npm run dev`) or use the Docker full-stack image to proxy requests.
-
-### 🖥️ Backend Server (required for Web)
-
-Production deployments use Express + SQLite as the sole data store and proxy (bundled in the single Docker image). The backend provides:
-- **Cross-device sync**: Share data between browsers/devices (SQLite is source of truth)
-- **CORS-free proxying**: GitHub / AI / WebDAV / aria2 calls go through the server
-- **Token security**: API keys stored encrypted on the server; the browser uses an HttpOnly session cookie
-
-#### Quick Start (Docker)
 ```bash
-echo 'API_SECRET=your-secret' > .env
-docker compose up -d
-```
-Web UI on port 8080. Data persists in the `backend-data` volume. See [DOCKER.md](DOCKER.md).
-
-Optional `.env` keys:
-```bash
-ENCRYPTION_KEY=your-key
-IMAGE_TAG=0.7.8   # pin full-stack image (default: latest)
+npm install
+npm run dev:all    # Vite + Express (or: npm run dev && npm run dev:server)
 ```
 
-#### Manual Setup
+Open the Vite URL shown in the terminal. Use Docker above to validate production-like session auth, proxies, and SQLite persistence.
+
+### 🖥️ Backend (required for the web app)
+
+Production and Docker use Express + SQLite as the sole data store and outbound proxy (bundled in the full-stack image):
+
+- **Cross-device sync** — SQLite is the source of truth
+- **CORS-free proxying** — GitHub / AI / WebDAV / Embedding / aria2 via `/api`
+- **Session auth** — HttpOnly cookie after `API_SECRET` login; secrets stay on the server
+
+#### Manual backend only
+
 ```bash
 cd server
 npm install
+# set API_SECRET in the environment for production-like auth
 npm run dev
 ```
 
-#### Environment Variables
+#### Environment variables
+
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `API_SECRET` | Yes (production/Docker) | Bearer token for API authentication |
-| `ENCRYPTION_KEY` | No | AES-256 key for encrypting stored secrets. Auto-generated if unset. |
-| `PORT` | No | Server port (default: 3000) |
+| `API_SECRET` | Yes (Docker / production) | Login secret for `/api` session auth |
+| `ENCRYPTION_KEY` | Recommended | AES-256 key for stored secrets; auto-generated in the data volume if unset |
+| `PORT` | No | Server port (default `3000`) |
 
-#### Connecting Frontend to Backend
-1. Open Settings panel in the app
-2. Find "Backend Server" section
-3. Enter API Secret (if configured)
-4. Click "Test Connection" — green indicator means connected
-5. Use "Sync to Backend" / "Sync from Backend" to transfer data
+#### Sign-in (Docker / full-stack)
+
+1. Open `http://localhost:8080`
+2. Enter `API_SECRET` to create a session
+3. Enter a GitHub PAT when prompted (stored encrypted on the server)
+4. Data loads from SQLite after login (including re-login)
 
 ## 🤖 AI Service Configuration
 
@@ -303,7 +300,7 @@ The app supports routing all outbound requests through a proxy:
 - **Protocol-level Testing** — Connection test performs actual protocol handshakes, not just TCP connect
 - **Encrypted Storage** — Proxy passwords are encrypted at rest with AES-256-GCM
 
-Configure in Settings → Network tab (available when a backend server is connected).
+Configure in Settings → Network tab (after signing in to the backend).
 
 ![network](upload/network.png)
 
@@ -317,7 +314,7 @@ Send release download links directly to an aria2 daemon:
 4. Test connection, then save
 5. Release asset buttons will now queue downloads to aria2
 
-Works in both backend-proxied mode and client-only mode (direct browser→aria2 connection).
+Works when the backend is connected (Docker full-stack or local server); downloads are proxied through the server when configured.
 
 ## 🧠 Vector Semantic Search (Optional)
 
@@ -361,7 +358,7 @@ Let agents (Claude Code, Cursor, etc.) read your AI-enriched starred repositorie
 
 **Enable:** Settings → MCP Server → toggle on. The panel shows the endpoint URLs, the token, and a one-click copyable agent config (JSON) for both Streamable HTTP and SSE. No extra install needed.
 
-> 💡 The MCP token is **separate** from the backend `API_SECRET`. Pure frontend (no backend) hides the MCP settings page.
+> 💡 The MCP token is **separate** from the backend `API_SECRET`. MCP settings appear after you sign in (Docker / full-stack).
 
 **Exposed tools (read-only):**
 
@@ -401,15 +398,9 @@ WebDAV always goes through the backend proxy (`/api/proxy/webdav`). That is requ
 
 ## 🚀 Deployment
 
-The build output is a static site, so it deploys anywhere static hosting is supported:
+**Recommended:** full-stack Docker — see [DOCKER.md](DOCKER.md).
 
-- **Netlify**: connect your fork, set build command `npm run build`, publish directory `dist`
-- **Vercel**: same as Netlify — import repo, build runs automatically
-- **GitHub Pages**: push the `dist` folder to a `gh-pages` branch
-- **Cloudflare Pages**: connect repo, build command `npm run build`, output `dist`
-- **Self-hosted**: serve the `dist` folder with any HTTP server (nginx, Caddy, etc.)
-
-For Docker deployment see [DOCKER.md](DOCKER.md).
+The Vite build also produces a static `dist/` for CDN hosting, but the app expects a same-origin backend for login, sync, and proxies. Prefer the Docker image (or put a reverse proxy in front of the full-stack container) instead of static-only hosting.
 
 ## Who it's for
 
@@ -419,7 +410,7 @@ People who systematically track releases
 
 ## Additional Notes
 
-1. The backend is optional but recommended for web deployment. Without it, all data is stored in your browser's localStorage — back up important data regularly.
+1. This is a web app: Docker (or Express + built SPA) is required for normal use. Browser-only static hosting without a backend is not supported for login/sync/proxies.
 2. I can't write code, this app is entirely written by the AI, mainly for my personal requirment. If you have a new feature or meet a bug, I can only try to do it, but I can't guarantee it, because it depends on the AI to do it successfully.😹
 
 ## 🤝 Contributing

@@ -576,13 +576,26 @@ export async function forceSyncToBackend(): Promise<void> {
   await syncToBackend();
 }
 
+/**
+ * After a valid server session exists (cookie login / GitHub connected), pull
+ * SQLite into the client store and start auto-sync. Shared by cold-start
+ * lifecycle and interactive LoginScreen so re-login never leaves an empty UI.
+ * Callers that need the one-shot browser→SQLite import should run
+ * `importBrowserDataToBackendIfNeeded` after this returns.
+ */
+export async function bootstrapDataAfterAuth(): Promise<() => void> {
+  await syncLocalGitHubTokenToBackend();
+  await syncFromBackend();
+  return startAutoSync();
+}
+
 // Visibility refresh handler (registered by startAutoSync)
 let _visibilityHandler: (() => void) | null = null;
 
 /**
  * Subscribe to Zustand store changes and auto-push to backend with 2s debounce.
  * Server SQLite is the source of truth across devices:
- * - Startup pulls once via useBackendLifecycle → syncFromBackend
+ * - Startup / re-login pulls via bootstrapDataAfterAuth → syncFromBackend
  * - Local edits debounce-push after 2s
  * - Tab visibility + light 45s poll refresh without overwriting pending local edits
  * Returns an unsubscribe function for cleanup.

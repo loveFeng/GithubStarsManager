@@ -16,11 +16,13 @@ echo 'API_SECRET=replace-with-a-long-random-secret' > .env
 # echo 'IMAGE_TAG=0.7.8' >> .env
 # echo 'ENCRYPTION_KEY=your-64-char-hex-or-passphrase' >> .env
 
-docker compose up -d
+docker compose up -d --build
 
 # Application: http://localhost:8080
 curl http://localhost:8080/api/health
 ```
+
+> Prefer `docker compose up -d --build` when testing from a local checkout so the image matches your tree. Omit `--build` to pull/use the published GHCR image.
 
 > **Private GHCR packages:** authenticate before pulling:
 > ```bash
@@ -104,13 +106,75 @@ docker run -d \
 
 Omit `ENCRYPTION_KEY` on first run to auto-generate one in the volume; back up `.encryption-key` before any migration.
 
-## Local build
+## Local build and smoke test (web app)
+
+This project is **web-only** (no Electron / desktop installer). The recommended way to build and verify locally is the full-stack Docker image: one container serves the SPA, `/api`, and MCP.
+
+### Build and run from source (Compose)
+
+```bash
+# From the repository root
+echo 'API_SECRET=replace-with-a-long-random-secret' > .env
+
+# Build Dockerfile.fullstack and start the container
+docker compose up -d --build
+
+# Health check
+curl http://localhost:8080/api/health
+
+# Open the web UI
+# http://localhost:8080
+```
+
+Log in with the same `API_SECRET`, then connect a GitHub PAT when prompted. Data is stored in the Compose volume `backend-data` (SQLite under `/app/data`).
+
+Rebuild after code changes:
+
+```bash
+docker compose up -d --build
+```
+
+Follow logs:
+
+```bash
+docker compose logs -f app
+```
+
+Stop (keep data):
+
+```bash
+docker compose down
+```
+
+### Build image without Compose
 
 ```bash
 docker build -f Dockerfile.fullstack -t github-stars-manager-fullstack:local .
-docker run -d -p 8080:3000 -v github-stars-data:/app/data \
-  -e API_SECRET="your-secret" github-stars-manager-fullstack:local
+docker run -d --name github-stars-manager \
+  -p 8080:3000 \
+  -v github-stars-data:/app/data \
+  -e API_SECRET="your-secret" \
+  github-stars-manager-fullstack:local
 ```
+
+### Smoke checklist
+
+1. `GET /api/health` returns OK.
+2. Browser opens `http://localhost:8080` and accepts `API_SECRET` login.
+3. After GitHub token connect, starred repos load from the backend (re-login should restore data from SQLite).
+4. Optional: Settings → WebDAV / Embedding / MCP — these call same-origin `/api/proxy/*` or `/mcp` (not a desktop client).
+
+### Unit / CI checks (npm, without Docker)
+
+For PR verification on the host (not a substitute for the Docker smoke test above):
+
+```bash
+npm ci
+npm run check:boundaries && npm run lint && npm run typecheck && npm run test:run && npm run build
+cd server && npm ci && npm test && npm run build
+```
+
+Frontend-only Vite (`npm run dev` / `npm run dev:all`) is for UI iteration; production-like behaviour (session cookie, proxies, persistence) should be validated with Docker as above.
 
 ## Migrate from an older split (frontend + backend) deployment
 
@@ -155,7 +219,7 @@ With the full-stack image, MCP endpoints are on the same origin as the UI:
 ```
 
 - MCP token is **separate** from `API_SECRET`.
-- Pure frontend (no backend) does not show MCP settings.
+- MCP settings appear after you sign in to the app.
 
 ## HTTPS UI with HTTP LAN services
 
