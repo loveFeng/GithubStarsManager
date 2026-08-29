@@ -107,6 +107,8 @@ the same PR.
 These three facts are load-bearing and must not drift; they are the "data does not get lost"
 guarantee for the v2 backend/electron split.
 
+> **Deployment note (2026):** Electron desktop packaging has been removed; production deployment is web-only (Docker full-stack single image or static hosting). Historical Electron references below remain for in-app code paths.
+
 | # | Contract | Where | Why |
 |---|----------|-------|-----|
 | 1 | `discoveryRepos` is **never persisted** | `partialize` omits it (the comment in `src/store/persistence/options.ts` next to the discovery block + the omitted key) | It is an extremely large JSON object. Re-fetching on load is cheaper than rehydrating megabytes from IndexedDB. Migrate must never add it to `partialize`. |

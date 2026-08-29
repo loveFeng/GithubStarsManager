@@ -1,0 +1,28 @@
+# DEPRECATED — split frontend + backend deployment (nginx + Node).
+# New deployments should use docker-compose.yml (single full-stack image).
+# This file remains for existing users migrating at their own pace; images may stop receiving updates.
+
+services:
+  frontend:
+    image: ghcr.io/amintacccp/github-stars-manager-frontend:${FRONTEND_IMAGE_TAG:-latest}
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    environment:
+      - BACKEND_HOST=${BACKEND_HOST:-backend:3000}
+    restart: unless-stopped
+
+  backend:
+    image: ghcr.io/amintacccp/github-stars-manager-server:${BACKEND_IMAGE_TAG:-latest}
+    expose:
+      - "3000"
+    environment:
+      - API_SECRET=${API_SECRET:-}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
+    volumes:
+      - backend-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  backend-data:

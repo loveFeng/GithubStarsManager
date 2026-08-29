@@ -377,9 +377,7 @@ customCategoriesCount: normalized.customCategories?.length || 0,
 ...normalized,
   };
   writeAuthMirror({
-user: merged.user ?? null,
-githubToken: typeof merged.githubToken === 'string' ? merged.githubToken : null,
-backendApiSecret: typeof merged.backendApiSecret === 'string' ? merged.backendApiSecret : null,
+    user: merged.user ?? null,
   });
 
   return merged;

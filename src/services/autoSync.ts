@@ -1,7 +1,6 @@
-import { backend } from './backendAdapter';
+import { backend, type ForkStateRecord } from './backendAdapter';
 import { useAppStore } from '../store/useAppStore';
 import { mergeRepositoriesPreservingLocalMetadata, stripLocalRepositoryFields } from '../utils/repositoryMerge';
-import { GitHubApiService } from './githubApi';
 import { logger } from './logger';
 import type { Repository } from '../types';
 
@@ -26,8 +25,8 @@ let _debounceTimer: ReturnType<typeof setTimeout> | null = null;
 // Polling timer for pull-from-backend
 let _pollTimer: ReturnType<typeof setInterval> | null = null;
 
-// Polling interval in milliseconds
-const POLL_INTERVAL = 5000;
+// Light incremental poll interval (server is source of truth; local edits push via debounce)
+const LIGHT_POLL_INTERVAL = 45_000;
 
 // Last known backend data fingerprints — skip store update if unchanged
 const _lastHash = {
@@ -38,6 +37,8 @@ const _lastHash = {
   embedding: '',
   vectorSearch: '',
   settings: '',
+  gists: '',
+  forkStates: '',
 };
 
 function quickHash(data: unknown): string {
@@ -115,6 +116,18 @@ export function shouldQueueVectorSearchRepairPush(backendConfig: unknown, localC
   return backendTokenUnusable && !!l.authToken;
 }
 
+function buildForkStatesPayload(): ForkStateRecord[] {
+  const state = useAppStore.getState();
+  const forkNameById = new Map(state.forks.map((fork) => [fork.id, fork.full_name]));
+  return [...state.readForks].sort((a, b) => a - b).map((repoId) => ({
+    repo_id: repoId,
+    full_name: forkNameById.get(repoId) ?? String(repoId),
+    is_read: true,
+    synced_at: new Date().toISOString(),
+  }));
+}
+
+
 function setRepositorySyncVisualState(isSyncing: boolean): void {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent('gsm:repository-sync-visual-state', { detail: { isSyncing } }));
@@ -123,42 +136,35 @@ function setRepositorySyncVisualState(isSyncing: boolean): void {
 let _isRestoringAuth = false;
 
 /**
- * Cross-browser/device session recovery (Issue #259).
+ * Cross-browser/device session recovery via HttpOnly cookie session.
  *
- * Only runs on a genuine bootstrap: no local session AND the client already
- * holds the backend API_SECRET (so it can authenticate). It NEVER overwrites an
- * existing local session — existing users' credentials and data are untouched.
- *
- * Bootstrap guard: the caller must have configured backendApiSecret once in
- * this browser (BackendPanel). With that, the backend hands back the GitHub
- * token it stores, and we re-validate it against the GitHub API before logging in.
+ * When the backend holds a GitHub token, fetch the current user through the
+ * proxy without restoring the PAT to local storage.
  */
 export async function tryRestoreAuthFromBackend(): Promise<boolean> {
   if (!backend.isAvailable || _isRestoringAuth) return false;
 
   const state = useAppStore.getState();
 
-  // Never clobber an existing session (single-account safety guard).
-  if (state.user && state.githubToken) return false;
-
-  // Without an authenticated backend we have nothing to restore from.
-  if (!state.backendApiSecret) return false;
+  // Never clobber an existing session.
+  if (state.user && (state.githubToken || state.githubAuthViaBackend)) return false;
 
   _isRestoringAuth = true;
   try {
-    const restored = await backend.restoreAuth();
-    if (!restored?.github_token) return false;
+    const session = await backend.getSession();
+    if (!session?.authenticated) return false;
 
-    // Re-check right before applying: the user may have logged in meanwhile.
+    if (!session.hasGitHubToken) return false;
+
     const latest = useAppStore.getState();
-    if (latest.user || latest.githubToken) return false;
+    if (latest.user || latest.githubToken || latest.githubAuthViaBackend) return false;
 
-    const githubApi = new GitHubApiService(restored.github_token);
-    const user = await githubApi.getCurrentUser();
+    const userData = await backend.getCurrentUser();
+    const user = userData as unknown as import('../types').GitHubUser;
 
-    useAppStore.getState().setGitHubToken(restored.github_token);
+    useAppStore.getState().setGitHubAuthViaBackend(true);
     useAppStore.getState().setUser(user);
-    logger.info('sync.restoreAuth', 'Restored session from backend', { login: user.login });
+    logger.info('sync.restoreAuth', 'Restored session from backend cookie', { login: user.login });
     return true;
   } catch (err) {
     logger.warn('sync.restoreAuth', 'Failed to restore session from backend', { error: err instanceof Error ? err.message : String(err) });
@@ -491,6 +497,7 @@ export async function syncToBackend(): Promise<void> {
   try {
     const state = useAppStore.getState();
 
+    const forkStatesPayload = buildForkStatesPayload();
     const results = await Promise.allSettled([
       backend.syncRepositories(state.repositories),
       backend.syncReleases(state.releases),
@@ -509,8 +516,10 @@ export async function syncToBackend(): Promise<void> {
         releaseSourceSettings: state.releaseSourceSettings,
         collapsedSidebarCategoryCount: state.collapsedSidebarCategoryCount,
       }),
+      backend.syncGists(state.gists),
+      backend.syncForkStates(forkStatesPayload),
     ]);
-    const [reposSync, releasesSync, aiSync, webdavSync, embeddingSync, vectorSearchSync, settingsSync] = results;
+    const [reposSync, releasesSync, aiSync, webdavSync, embeddingSync, vectorSearchSync, settingsSync, gistsSync, forkStatesSync] = results;
 
     const failures = results.filter(r => r.status === 'rejected');
     if (failures.length > 0) {
@@ -544,6 +553,8 @@ export async function syncToBackend(): Promise<void> {
         collapsedSidebarCategoryCount: state.collapsedSidebarCategoryCount,
       });
     }
+    if (gistsSync.status === 'fulfilled') _lastHash.gists = quickHash(state.gists);
+    if (forkStatesSync.status === 'fulfilled') _lastHash.forkStates = quickHash(forkStatesPayload);
   } catch (err) {
     logger.errorFromError('sync.pushToBackend', 'Failed to sync to backend', err, { durationMs: Date.now() - pushStartTime });
   } finally {
@@ -565,8 +576,15 @@ export async function forceSyncToBackend(): Promise<void> {
   await syncToBackend();
 }
 
+// Visibility refresh handler (registered by startAutoSync)
+let _visibilityHandler: (() => void) | null = null;
+
 /**
  * Subscribe to Zustand store changes and auto-push to backend with 2s debounce.
+ * Server SQLite is the source of truth across devices:
+ * - Startup pulls once via useBackendLifecycle → syncFromBackend
+ * - Local edits debounce-push after 2s
+ * - Tab visibility + light 45s poll refresh without overwriting pending local edits
  * Returns an unsubscribe function for cleanup.
  */
 export function startAutoSync(): () => void {
@@ -608,7 +626,9 @@ export function startAutoSync(): () => void {
       state.customCategories !== prevState.customCategories ||
       state.assetFilters !== prevState.assetFilters ||
       state.releaseSourceSettings !== prevState.releaseSourceSettings ||
-      state.collapsedSidebarCategoryCount !== prevState.collapsedSidebarCategoryCount;
+      state.collapsedSidebarCategoryCount !== prevState.collapsedSidebarCategoryCount ||
+      state.gists !== prevState.gists ||
+      state.readForks !== prevState.readForks;
 
     if (!changed) return;
 
@@ -625,12 +645,21 @@ export function startAutoSync(): () => void {
   });
   _storeUnsubscribe = unsubscribe;
 
-  // 2. Poll backend every 5s → pull fresh data for cross-device sync
+  // Light incremental pull — server is source of truth for cross-device sync
   _pollTimer = setInterval(() => {
-    syncFromBackend();
-  }, POLL_INTERVAL);
+    void syncFromBackend();
+  }, LIGHT_POLL_INTERVAL);
 
-  logger.info('sync.start', 'Auto-sync started (push debounce: 2s, poll: 5s)');
+  if (typeof document !== 'undefined') {
+    _visibilityHandler = () => {
+      if (document.visibilityState === 'visible') {
+        void syncFromBackend();
+      }
+    };
+    document.addEventListener('visibilitychange', _visibilityHandler);
+  }
+
+  logger.info('sync.start', `Auto-sync started (push debounce: 2s, light poll: ${LIGHT_POLL_INTERVAL / 1000}s, visibility refresh)`);
   return unsubscribe;
 }
 
@@ -645,6 +674,10 @@ export function stopAutoSync(unsubscribe: () => void): void {
   if (_pollTimer) {
     clearInterval(_pollTimer);
     _pollTimer = null;
+  }
+  if (_visibilityHandler && typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', _visibilityHandler);
+    _visibilityHandler = null;
   }
   if (_storeUnsubscribe) {
     _storeUnsubscribe();

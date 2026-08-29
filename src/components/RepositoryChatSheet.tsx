@@ -8,6 +8,7 @@ import { safeWriteText } from '../utils/clipboardUtils';
 import { useShallow } from 'zustand/react/shallow';
 import { useRepositoryChatSessions } from '../features/repository-chat/hooks/useRepositoryChatSessions';
 import { useRepositoryChat } from '../features/repository-chat/hooks/useRepositoryChat';
+import { useAppNavigation } from '../routing/useAppNavigation';
 import { RepositoryChatHistoryPanel } from './RepositoryChatHistoryPanel';
 import MarkdownRenderer from './MarkdownRenderer';
 import { Button } from './ui/button';
@@ -111,10 +112,10 @@ const RepositoryChatSheet: React.FC<RepositoryChatSheetProps> = ({
   onCloseAutoFocus,
   repository,
 }) => {
-  const { language, setCurrentView } = useAppStore(useShallow((state) => ({
+  const { language } = useAppStore(useShallow((state) => ({
     language: state.language,
-    setCurrentView: state.setCurrentView,
   })));
+  const { navigateToView } = useAppNavigation();
   const [showHistory, setShowHistory] = useState(false);
   const [draft, setDraft] = useState('');
   const { toast } = useDialog();
@@ -179,8 +180,7 @@ const RepositoryChatSheet: React.FC<RepositoryChatSheetProps> = ({
     if (repository) {
       sessionStorage.setItem('gsm:repository-chat-return', JSON.stringify({ repoId: repository.id, draft }));
     }
-    sessionStorage.setItem('gsm:pending-settings-tab', 'ai');
-    setCurrentView('settings');
+    navigateToView('settings', { settingsTab: 'ai' });
     window.dispatchEvent(new CustomEvent('gsm:navigate-to-settings-tab', { detail: { tab: 'ai' } }));
   };
 

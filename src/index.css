@@ -102,19 +102,26 @@
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 .hd-drag {
-  -webkit-app-region: drag;
-  -webkit-user-select: none;
-  user-select: none;
+  /* Electron titlebar drag regions removed in pure Web builds */
 }
 
 .hd-btns {
-  -webkit-app-region: no-drag;
 }
 
 @media (max-width: 1023px) {
   .hd-drag {
-    -webkit-app-region: no-drag;
   }
 }
 
@@ -1073,8 +1080,19 @@ html.dark .release-card.is-expanded {
   box-shadow: var(--ui-shadow-float);
 }
 
-.linear-login-help {
-  background: var(--ui-panel-muted);
-  border: 1px solid var(--ui-line-subtle);
-  border-radius: var(--ui-radius-md);
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@layer utilities {
+  .pb-safe {
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
+  }
 }

@@ -1,9 +1,19 @@
 import { translateBackendError } from '../utils/backendErrors';
 import { logger } from './logger';
 
-import { Repository, Release, AIConfig, WebDAVConfig, EmbeddingConfig, VectorSearchConfig } from '../types';
+import { Repository, Release, AIConfig, WebDAVConfig, EmbeddingConfig, VectorSearchConfig, Gist } from '../types';
 import { useAppStore } from '../store/useAppStore';
 import { isReadmeCandidateItem, type GitHubReadmeCandidateItem } from '../utils/readmeVariants';
+
+export interface ForkStateRecord {
+  repo_id: number;
+  full_name: string;
+  is_read: boolean;
+  last_checked_at?: string | null;
+  upstream_full_name?: string | null;
+  upstream_updated_at?: string | null;
+  synced_at?: string | null;
+}
 
 interface GitHubContentResponse {
   content?: string;
@@ -35,6 +45,7 @@ class BackendAdapter {
         try {
           const res = await fetch(`${baseUrl}/health`, {
             signal: controller.signal,
+            credentials: 'include',
           });
 
           if (res.ok) {
@@ -132,7 +143,11 @@ class BackendAdapter {
     }
 
     try {
-      const response = await fetch(url, { ...options, signal: controller.signal });
+      const response = await fetch(url, {
+        ...options,
+        credentials: 'include',
+        signal: controller.signal,
+      });
       if (logger.isDebugMode()) {
         // Capture response headers
         const responseHeaders: Record<string, string> = {};
@@ -510,13 +525,20 @@ class BackendAdapter {
 
   // === WebDAV Proxy ===
 
-  async proxyWebDAV(configId: string, method: string, path: string, body?: string, headers?: Record<string, string>): Promise<Response> {
+  async proxyWebDAV(
+    configId: string,
+    method: string,
+    path: string,
+    body?: string,
+    headers?: Record<string, string>,
+    responseType: 'json' | 'text' = 'text',
+  ): Promise<Response> {
     if (!this._backendUrl) throw new Error('Backend not available');
 
     return this.fetchWithTimeout(`${this._backendUrl}/proxy/webdav`, {
       method: 'POST',
       headers: this.getAuthHeaders(),
-      body: JSON.stringify({ configId, method, path, body, headers })
+      body: JSON.stringify({ configId, method, path, body, headers, responseType }),
     });
   }
 
@@ -573,6 +595,48 @@ class BackendAdapter {
     }, 120000, 3);
     if (!res.ok) await this.throwTranslatedError(res, 'Fetch error');
     return res.json() as Promise<{ releases: Release[]; total: number }>;
+  }
+
+  async fetchGists(): Promise<{ gists: Gist[]; total: number }> {
+    if (!this._backendUrl) throw new Error('Backend not available');
+
+    const res = await this.fetchWithRetry(`${this._backendUrl}/gists?limit=10000`, {
+      headers: this.getAuthHeaders(),
+    }, 120000, 3);
+    if (!res.ok) await this.throwTranslatedError(res, 'Fetch gists error');
+    return res.json() as Promise<{ gists: Gist[]; total: number }>;
+  }
+
+  async syncGists(gists: Gist[]): Promise<void> {
+    if (!this._backendUrl) return;
+
+    const res = await this.fetchWithRetry(`${this._backendUrl}/gists`, {
+      method: 'PUT',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify({ gists }),
+    }, 120000, 3);
+    if (!res.ok) await this.throwTranslatedError(res, 'Sync gists error');
+  }
+
+  async fetchForkStates(): Promise<{ states: ForkStateRecord[]; total: number }> {
+    if (!this._backendUrl) throw new Error('Backend not available');
+
+    const res = await this.fetchWithRetry(`${this._backendUrl}/fork-states`, {
+      headers: this.getAuthHeaders(),
+    }, 30000, 3);
+    if (!res.ok) await this.throwTranslatedError(res, 'Fetch fork states error');
+    return res.json() as Promise<{ states: ForkStateRecord[]; total: number }>;
+  }
+
+  async syncForkStates(states: ForkStateRecord[]): Promise<void> {
+    if (!this._backendUrl) return;
+
+    const res = await this.fetchWithRetry(`${this._backendUrl}/fork-states`, {
+      method: 'PUT',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify({ states }),
+    }, 30000, 3);
+    if (!res.ok) await this.throwTranslatedError(res, 'Sync fork states error');
   }
 
   async syncAIConfigs(configs: AIConfig[]): Promise<void> {
@@ -783,22 +847,61 @@ class BackendAdapter {
     if (!this._backendUrl) return false;
 
     try {
-      const res = await this.fetchWithTimeout(`${this._backendUrl}/settings`, {
-        headers: this.getAuthHeaders(),
-      }, 5000);
-      return res.ok;
+      const session = await this.getSession();
+      return session?.authenticated === true;
     } catch {
       return false;
     }
   }
 
+  async login(secret: string): Promise<void> {
+    if (!this._backendUrl) throw new Error('Backend not available');
+
+    const res = await this.fetchWithTimeout(`${this._backendUrl}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret }),
+    }, 8000);
+    if (!res.ok) await this.throwTranslatedError(res, 'Login failed');
+  }
+
+  async logout(): Promise<void> {
+    if (!this._backendUrl) return;
+
+    try {
+      await this.fetchWithTimeout(`${this._backendUrl}/auth/logout`, { method: 'POST' }, 5000);
+    } catch {
+      // Best-effort cookie clear
+    }
+  }
+
+  async getSession(): Promise<{ authenticated: boolean; hasGitHubToken: boolean } | null> {
+    if (!this._backendUrl) return null;
+
+    try {
+      const res = await this.fetchWithTimeout(`${this._backendUrl}/auth/session`, {}, 5000);
+      if (!res.ok) return null;
+      return res.json() as Promise<{ authenticated: boolean; hasGitHubToken: boolean }>;
+    } catch {
+      return null;
+    }
+  }
+
+  async saveGitHubToken(token: string, validate = true): Promise<void> {
+    if (!this._backendUrl) throw new Error('Backend not available');
+
+    const res = await this.fetchWithTimeout(`${this._backendUrl}/auth/github-token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, validate }),
+    }, 30000);
+    if (!res.ok) await this.throwTranslatedError(res, 'Failed to save GitHub token');
+  }
+
   /**
-   * Restore the GitHub token stored on the backend for cross-browser/device
-   * session recovery. Only callable when the backend is reachable AND this
-   * client already authenticates (Bearer API_SECRET) — the backend never hands
-   * it out to unauthenticated callers.
+   * Check whether the backend holds a GitHub token (no PAT returned).
    */
-  async restoreAuth(): Promise<{ github_token: string | null } | null> {
+  async restoreAuth(): Promise<{ hasGitHubToken: boolean } | null> {
     if (!this._backendUrl) return null;
 
     try {
@@ -807,7 +910,7 @@ class BackendAdapter {
         headers: this.getAuthHeaders(),
       }, 8000);
       if (!res.ok) return null;
-      return res.json() as Promise<{ github_token: string | null }>;
+      return res.json() as Promise<{ hasGitHubToken: boolean }>;
     } catch {
       return null;
     }

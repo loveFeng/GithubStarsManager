@@ -403,6 +403,8 @@ export interface AppState {
   // Auth
   user: GitHubUser | null;
   githubToken: string | null;
+  /** True when GitHub API calls use the backend-stored PAT (no local token). */
+  githubAuthViaBackend: boolean;
   isAuthenticated: boolean;
   hasHydrated: boolean;
   

@@ -649,33 +649,31 @@ describe('useAppStore auth localStorage mirror (Issue #259)', () => {
     window.localStorage?.removeItem?.(AUTH_MIRROR_KEY);
   });
 
-  it('persists auth to the synchronous localStorage mirror on login', () => {
+  it('persists non-sensitive user profile to the synchronous localStorage mirror on login', () => {
     useAppStore.getState().setGitHubToken('ghp_xxx');
     useAppStore.getState().setUser(user);
 
     const raw = window.localStorage.getItem(AUTH_MIRROR_KEY);
     const mirror = JSON.parse(raw || '{}');
-    expect(mirror.githubToken).toBe('ghp_xxx');
+    expect(mirror.githubToken).toBeUndefined();
+    expect(mirror.backendApiSecret).toBeUndefined();
     expect(mirror.user.login).toBe('test-user');
   });
 
-  it('persists backendApiSecret to the mirror and clears on logout', () => {
+  it('clears the auth mirror on logout without persisting secrets', () => {
     useAppStore.getState().setBackendApiSecret('secret-1');
+    useAppStore.getState().setUser(user);
     const parsed = JSON.parse(window.localStorage.getItem(AUTH_MIRROR_KEY) || '{}');
-    expect(parsed.backendApiSecret).toBe('secret-1');
+    expect(parsed.backendApiSecret).toBeUndefined();
+    expect(parsed.user.login).toBe('test-user');
 
     useAppStore.getState().logout();
     expect(window.localStorage.getItem(AUTH_MIRROR_KEY)).toBeNull();
-    // The in-memory secret and the sessionStorage cache must also be torn down;
-    // otherwise the backend keeps authenticating a logged-out user (and on v10
-    // the secret is re-persisted to IndexedDB on the next partialize).
     expect(useAppStore.getState().backendApiSecret).toBeNull();
-    expect(window.sessionStorage.getItem('github-stars-manager-backend-secret')).toBeNull();
   });
 
-  it('restores auth from the mirror when the persisted snapshot lacks credentials', () => {
-    // Simulate the reported bug: async IndexedDB write never landed, so the
-    // persisted snapshot has empty auth while the mirror holds the real values.
+  it('restores user profile from the mirror when the persisted snapshot lacks credentials', () => {
+    // Mirror holds public profile only; tokens live in HttpOnly cookies / SQLite.
     window.localStorage.setItem(
       AUTH_MIRROR_KEY,
       JSON.stringify({ user, githubToken: 'ghp_restored', backendApiSecret: null })
@@ -683,8 +681,7 @@ describe('useAppStore auth localStorage mirror (Issue #259)', () => {
 
     const normalized = normalizePersistedState({}, useAppStore.getState());
     expect(normalized.user).toEqual(user);
-    expect(normalized.githubToken).toBe('ghp_restored');
-    expect(normalized.isAuthenticated).toBe(true);
+    expect(normalized.githubToken).toBeNull();
   });
 
   it('prefers persisted credentials over the mirror when both exist', () => {
@@ -897,7 +894,7 @@ describe('useAppStore persisted-state historical fixtures', () => {
   });
 });
 
-describe('useAppStore backend API secret three-store contract', () => {
+describe('useAppStore backend API secret cookie-session contract', () => {
   const sessionState = (backendApiSecret: string | null) => ({
     ...useAppStore.getInitialState(),
     backendApiSecret,
@@ -908,7 +905,7 @@ describe('useAppStore backend API secret three-store contract', () => {
     window.sessionStorage.removeItem('github-stars-manager-backend-secret');
   });
 
-  it('uses the IndexedDB snapshot first and realigns the auth mirror after hydration', () => {
+  it('keeps IndexedDB backendApiSecret in memory but never mirrors secrets to localStorage', () => {
     backendSecretMirror('mirror-secret');
     window.sessionStorage.setItem('github-stars-manager-backend-secret', 'session-secret');
     const merged = persistenceOptions().merge(
@@ -918,24 +915,26 @@ describe('useAppStore backend API secret three-store contract', () => {
 
     expect(merged.backendApiSecret).toBe('idb-secret');
     expect(JSON.parse(window.localStorage.getItem('github-stars-manager-auth') || '{}')).toMatchObject({
-      backendApiSecret: 'idb-secret',
+      user: null,
     });
+    expect(JSON.parse(window.localStorage.getItem('github-stars-manager-auth') || '{}').backendApiSecret).toBeUndefined();
   });
 
-  it('uses the localStorage auth mirror when IndexedDB lacks the secret', () => {
+  it('does not restore secrets from the legacy localStorage mirror', () => {
     backendSecretMirror('mirror-secret');
     const normalized = normalizePersistedState(buildPersistedSnapshot(), sessionState('session-secret'));
 
-    expect(normalized.backendApiSecret).toBe('mirror-secret');
+    // Cookie sessions are authoritative; in-memory/current state may still hold a legacy field.
+    expect(normalized.backendApiSecret).toBe('session-secret');
   });
 
-  it('falls back to the session secret when IndexedDB and the mirror are empty', () => {
+  it('falls back to the current in-memory secret when IndexedDB omits it', () => {
     const normalized = normalizePersistedState(buildPersistedSnapshot(), sessionState('session-secret'));
 
     expect(normalized.backendApiSecret).toBe('session-secret');
   });
 
-  it('keeps IndexedDB ahead of conflicting mirror and session values', () => {
+  it('keeps IndexedDB ahead of conflicting current-state values', () => {
     backendSecretMirror('mirror-secret');
     const normalized = normalizePersistedState(
       buildPersistedSnapshot({ backendApiSecret: 'idb-secret' }),
@@ -945,7 +944,7 @@ describe('useAppStore backend API secret three-store contract', () => {
     expect(normalized.backendApiSecret).toBe('idb-secret');
   });
 
-  it('treats an explicitly empty persisted secret as a clear and aligns a stale mirror to null', () => {
+  it('treats an explicitly empty persisted secret as a clear without writing secrets to the mirror', () => {
     backendSecretMirror('mirror-secret');
     const merged = persistenceOptions().merge(
       buildPersistedSnapshot({ backendApiSecret: '' }),
@@ -953,9 +952,7 @@ describe('useAppStore backend API secret three-store contract', () => {
     );
 
     expect(merged.backendApiSecret).toBeNull();
-    expect(JSON.parse(window.localStorage.getItem('github-stars-manager-auth') || '{}')).toMatchObject({
-      backendApiSecret: null,
-    });
+    expect(JSON.parse(window.localStorage.getItem('github-stars-manager-auth') || '{}').backendApiSecret).toBeUndefined();
   });
 });
 

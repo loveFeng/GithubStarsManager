@@ -3,37 +3,39 @@ import { defaultReleaseSourceSettings } from '../../types';
 import { logger } from '../../services/logger';
 import type { AppStoreSlice } from '../types';
 import { clearAuthMirror, writeAuthMirror, writeSessionBackendSecret } from '../persistence/authStorage';
+import { backend } from '../../services/backendAdapter';
 
-export const createAuthSlice: AppStoreSlice<Pick<import('../types').AppActions, 'setUser' | 'setGitHubToken' | 'setBackendApiSecret' | 'logout'>> = (set, get) => ({
+export const createAuthSlice: AppStoreSlice<Pick<import('../types').AppActions, 'setUser' | 'setGitHubToken' | 'setBackendApiSecret' | 'setGitHubAuthViaBackend' | 'logout'>> = (set, get) => ({
       // Auth actions
       setUser: (user) => {
         logger.info('store.setUser', 'Setting user', { hasUser: !!user });
         set({ user, isAuthenticated: !!user });
-        const { githubToken, backendApiSecret } = get();
-        writeAuthMirror({ user, githubToken, backendApiSecret });
+        writeAuthMirror({ user });
       },
       setGitHubToken: (token) => {
         logger.info('store.setGitHubToken', 'Setting GitHub token', { hasToken: !!token });
-        set({ githubToken: token });
-        const { user, backendApiSecret } = get();
-        writeAuthMirror({ user, githubToken: token, backendApiSecret });
+        set({
+          githubToken: token,
+          ...(token ? { githubAuthViaBackend: false } : {}),
+        });
+        const { user } = get();
+        writeAuthMirror({ user });
       },
       setBackendApiSecret: (backendApiSecret) => {
         writeSessionBackendSecret(backendApiSecret);
         set({ backendApiSecret });
-        const { user, githubToken } = get();
-        writeAuthMirror({ user, githubToken, backendApiSecret });
+      },
+      setGitHubAuthViaBackend: (githubAuthViaBackend) => {
+        set({ githubAuthViaBackend });
       },
       logout: () => {
-        // Full credential teardown: clear the localStorage auth mirror, the
-        // sessionStorage API_SECRET, and the in-memory secret. Without this,
-        // `backendApiSecret` survives logout in memory AND in the v10 IndexedDB
-        // snapshot, so the backend would still authenticate a logged-out user.
         clearAuthMirror();
         writeSessionBackendSecret(null);
+        void backend.logout();
         set({
           user: null,
           githubToken: null,
+          githubAuthViaBackend: false,
           backendApiSecret: null,
           isAuthenticated: false,
           repositories: [],

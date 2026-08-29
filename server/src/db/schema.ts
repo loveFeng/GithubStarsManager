@@ -143,6 +143,8 @@ export function initializeSchema(db: Database.Database): void {
     );
   `);
 
+  initializeSchemaV2(db);
+
   addColumnIfMissing(db, 'ai_configs', 'reasoning_effort', 'TEXT');
   addColumnIfMissing(db, 'ai_configs', 'mimo_plan', 'TEXT');
   addColumnIfMissing(db, 'repositories', 'category_locked', 'INTEGER DEFAULT 0');
@@ -166,4 +168,70 @@ export function initializeSchema(db: Database.Database): void {
   // 上一次向量索引时采用的 license 值（SPDX id / null）。用于增量谓词判断 license 是否
   // 变化：当期 license 与此值不一致时需重新索引，保证 license 变更能使向量元数据失效。
   addColumnIfMissing(db, 'repositories', 'vector_indexed_license', 'TEXT');
+}
+
+/** v2 tables: gists, fork sync state, repository chat sessions/messages. */
+export function initializeSchemaV2(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS gists (
+      id TEXT PRIMARY KEY,
+      description TEXT,
+      html_url TEXT NOT NULL,
+      public INTEGER DEFAULT 0,
+      created_at TEXT,
+      updated_at TEXT,
+      owner_login TEXT,
+      owner_avatar_url TEXT,
+      files_json TEXT,
+      ai_summary TEXT,
+      ai_tags TEXT,
+      starred INTEGER DEFAULT 0,
+      is_owner INTEGER DEFAULT 0,
+      analyzed_at TEXT,
+      analysis_failed INTEGER DEFAULT 0,
+      analysis_error TEXT,
+      last_edited TEXT,
+      comments INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS fork_states (
+      repo_id INTEGER PRIMARY KEY,
+      full_name TEXT NOT NULL,
+      is_read INTEGER DEFAULT 0,
+      last_checked_at TEXT,
+      upstream_full_name TEXT,
+      upstream_updated_at TEXT,
+      synced_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS repository_chat_sessions (
+      id TEXT PRIMARY KEY,
+      repo_id INTEGER NOT NULL,
+      repo_full_name TEXT NOT NULL,
+      source_ref_sha TEXT NOT NULL DEFAULT '',
+      title TEXT NOT NULL,
+      summary TEXT,
+      model_config_id TEXT,
+      model_label_at_time TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deleted_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS repository_chat_messages (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'complete',
+      evidence_ids_json TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (session_id) REFERENCES repository_chat_sessions(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_gists_updated_at ON gists(updated_at);
+    CREATE INDEX IF NOT EXISTS idx_fork_states_full_name ON fork_states(full_name);
+    CREATE INDEX IF NOT EXISTS idx_chat_sessions_repo_id ON repository_chat_sessions(repo_id);
+    CREATE INDEX IF NOT EXISTS idx_chat_messages_session_id ON repository_chat_messages(session_id);
+  `);
 }

@@ -47,3 +47,22 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Set up Node.js (server)
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install server dependencies
+        working-directory: server
+        run: npm ci
+
+      - name: Server tests
+        working-directory: server
+        run: npm test
+
+      - name: Server build
+        working-directory: server
+        run: npm run build

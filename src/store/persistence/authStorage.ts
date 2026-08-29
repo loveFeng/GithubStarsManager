@@ -1,13 +1,11 @@
 
 import type { GitHubUser } from '../../types';
 
-const BACKEND_SECRET_SESSION_KEY = 'github-stars-manager-backend-secret';
 const AUTH_MIRROR_KEY = 'github-stars-manager-auth';
 
+/** Non-sensitive auth mirror — user profile only (no tokens or secrets). */
 interface AuthMirror {
   user: GitHubUser | null;
-  githubToken: string | null;
-  backendApiSecret: string | null;
 }
 
 export const readAuthMirror = (): AuthMirror | null => {
@@ -15,11 +13,9 @@ export const readAuthMirror = (): AuthMirror | null => {
   try {
     const raw = window.localStorage.getItem(AUTH_MIRROR_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<AuthMirror>;
+    const parsed = JSON.parse(raw) as Partial<AuthMirror & { githubToken?: unknown; backendApiSecret?: unknown }>;
     return {
       user: parsed.user ?? null,
-      githubToken: typeof parsed.githubToken === 'string' ? parsed.githubToken : null,
-      backendApiSecret: typeof parsed.backendApiSecret === 'string' ? parsed.backendApiSecret : null,
     };
   } catch {
     return null;
@@ -29,10 +25,9 @@ export const readAuthMirror = (): AuthMirror | null => {
 export const writeAuthMirror = (auth: AuthMirror): void => {
   if (typeof window === 'undefined') return;
   try {
-    window.localStorage.setItem(AUTH_MIRROR_KEY, JSON.stringify(auth));
+    window.localStorage.setItem(AUTH_MIRROR_KEY, JSON.stringify({ user: auth.user }));
   } catch {
-    // Quota/security errors are expected in constrained environments; the
-    // IndexedDB persist path remains the fallback there.
+    // Quota/security errors are expected in constrained environments.
   }
 };
 
@@ -45,24 +40,16 @@ export const clearAuthMirror = (): void => {
   }
 };
 
-export const readSessionBackendSecret = (): string | null => {
-  if (typeof window === 'undefined') return null;
-  try {
-    return window.sessionStorage.getItem(BACKEND_SECRET_SESSION_KEY);
-  } catch {
-    return null;
-  }
-};
+/** @deprecated Session auth uses HttpOnly cookies; kept for migration cleanup. */
+export const readSessionBackendSecret = (): string | null => null;
 
-export const writeSessionBackendSecret = (secret: string | null): void => {
+/** @deprecated Session auth uses HttpOnly cookies. */
+export const writeSessionBackendSecret = (_secret: string | null = null): void => {
+  void _secret;
   if (typeof window === 'undefined') return;
   try {
-    if (secret) {
-      window.sessionStorage.setItem(BACKEND_SECRET_SESSION_KEY, secret);
-    } else {
-      window.sessionStorage.removeItem(BACKEND_SECRET_SESSION_KEY);
-    }
+    window.sessionStorage.removeItem('github-stars-manager-backend-secret');
   } catch {
-    // Storage may be blocked or unavailable; IndexedDB remains the durable path.
+    // ignore
   }
 };

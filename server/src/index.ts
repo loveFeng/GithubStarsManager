@@ -15,10 +15,14 @@ import releasesRouter from './routes/releases.js';
 import categoriesRouter from './routes/categories.js';
 import configsRouter from './routes/configs.js';
 import syncRouter from './routes/sync.js';
+import authRouter from './routes/auth.js';
 import authRestoreRouter from './routes/authRestore.js';
 import proxyRouter from './routes/proxy.js';
 import logsRouter from './routes/logs.js';
 import mcpAdminRouter from './routes/mcp.js';
+import gistsRouter from './routes/gists.js';
+import forkStatesRouter from './routes/forkStates.js';
+import repositoryChatRouter from './routes/repositoryChat.js';
 import { mountMcpRoutes } from './mcp/http.js';
 
 export function createApp(): express.Express {
@@ -28,6 +32,8 @@ export function createApp(): express.Express {
   app.use(helmet());
   app.use(
     cors({
+      origin: true,
+      credentials: true,
       exposedHeaders: [
         'X-Log-Count',
         'Mcp-Session-Id',
@@ -51,11 +57,12 @@ export function createApp(): express.Express {
   app.use(morgan('combined', { stream: morganLoggerStream }));
   app.use(express.json({ limit: '50mb' }));
 
-  // Auth middleware for all /api/* except /api/health
+  // Auth middleware for all /api/* except public auth/health routes
   app.use('/api', authMiddleware);
 
   // Routes
   app.use(healthRouter);
+  app.use(authRouter);
 
   // Wave 2: Data CRUD routes
   app.use(repositoriesRouter);
@@ -63,6 +70,9 @@ export function createApp(): express.Express {
   app.use(categoriesRouter);
   app.use(configsRouter);
   app.use(syncRouter);
+  app.use(gistsRouter);
+  app.use(forkStatesRouter);
+  app.use(repositoryChatRouter);
   app.use(authRestoreRouter);
 
   // Wave 3: Proxy routes

@@ -1,13 +1,13 @@
 import React, { useState, useMemo } from 'react';
-import { Settings, Calendar, Search, Moon, Sun, LogOut, TrendingUp, GitFork, FileCode2, Menu, X } from 'lucide-react';
-import { Button } from './ui/button';
+import { NavLink } from 'react-router-dom';
+import { Settings, Calendar, Search, Moon, Sun, LogOut, TrendingUp, GitFork, FileCode2, Menu, X } from 'lucide-react';import { Button } from './ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { useAppStore } from '../store/useAppStore';
 import { useShallow } from 'zustand/react/shallow';
 import { useDialog } from '../hooks/useDialog';
-import { HeaderMenuId, AppState } from '../types';
-
+import { HeaderMenuId } from '../types';
+import { menuIdToPath } from '../routing/viewRoutes';
 const MENU_META: Record<HeaderMenuId, {
   icon: React.ComponentType<{ className?: string }>;
   labelZh: string;
@@ -28,7 +28,6 @@ export const Header: React.FC = () => {
     currentView,
     headerMenuConfig,
     setTheme,
-    setCurrentView,
     logout,
     language,
   } = useAppStore(useShallow((state) => ({
@@ -37,11 +36,9 @@ export const Header: React.FC = () => {
     currentView: state.currentView,
     headerMenuConfig: state.headerMenuConfig,
     setTheme: state.setTheme,
-    setCurrentView: state.setCurrentView,
     logout: state.logout,
     language: state.language,
   })));
-
   const { confirm } = useDialog();
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -56,14 +53,14 @@ export const Header: React.FC = () => {
   const t = (zh: string, en: string) => language === 'zh' ? zh : en;
 
   return (
-    <header className="linear-header sticky top-0 z-50 hd-drag lg:hd-drag relative">
+    <header className="linear-header sticky top-0 z-50 relative">
       <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8">
         <div className="linear-header-inner flex h-14 items-center justify-between">
           {/* Logo and Title */}
           <div className="flex min-w-0 items-center space-x-3">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-card">
               <img 
-                src="./icon.png" 
+                src="/icon.png" 
                 alt="GitHub Stars Manager" 
                 className="h-full w-full object-cover"
               />
@@ -84,30 +81,38 @@ export const Header: React.FC = () => {
           </div>
 
           {/* Navigation - Desktop & Tablet (≥768px) */}
-          <nav className="hidden items-center gap-1 hd-btns md:flex lg:hd-btns">
+          <nav className="hidden items-center gap-1 md:flex" aria-label={t('主导航', 'Main navigation')}>
             {visibleMenus.map(menuItem => {
               const meta = MENU_META[menuItem.id];
               const Icon = meta.icon;
               const label = t(meta.labelZh, meta.labelEn);
-              const isActive = currentView === menuItem.id;
+              const to = menuIdToPath(menuItem.id);
+              const isActive = menuItem.id === 'subscription'
+                ? currentView === 'subscription'
+                : currentView === menuItem.id;
               return (
                 <Button
                   key={menuItem.id}
                   type="button"
                   variant={isActive ? 'secondary' : 'ghost'}
                   size="sm"
-                  onClick={() => setCurrentView(menuItem.id as AppState['currentView'])}
-                  aria-pressed={isActive}
-                  title={label}
-                  aria-label={label}
+                  asChild
                   className="whitespace-nowrap xl:px-3"
                 >
-                  <Icon className="h-4 w-4 shrink-0" />
-                  <span className="hidden xl:inline">{label}</span>
+                  <NavLink
+                    to={to}
+                    aria-current={isActive ? 'page' : undefined}
+                    aria-pressed={isActive}
+                    title={label}
+                    aria-label={label}
+                    className="inline-flex items-center gap-2"
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                    <span className="hidden xl:inline">{label}</span>
+                  </NavLink>
                 </Button>
               );
-            })}
-          </nav>
+            })}          </nav>
 
           {/* Mobile Dropdown Menu (<768px) */}
           <DropdownMenu open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
@@ -126,27 +131,28 @@ export const Header: React.FC = () => {
               {visibleMenus.map(menuItem => {
                 const meta = MENU_META[menuItem.id];
                 const Icon = meta.icon;
-                const isActive = currentView === menuItem.id;
+                const to = menuIdToPath(menuItem.id);
+                const isActive = menuItem.id === 'subscription'
+                  ? currentView === 'subscription'
+                  : currentView === menuItem.id;
                 return (
-                  <DropdownMenuItem
-                    key={menuItem.id}
-                    onSelect={() => {
-                      setCurrentView(menuItem.id as AppState['currentView']);
-                      setMobileMenuOpen(false);
-                    }}
-                    aria-current={isActive ? 'page' : undefined}
-                    className={isActive ? 'bg-muted dark:bg-accent' : undefined}
-                  >
-                    <Icon className="mr-3 h-4 w-4" />
-                    {t(meta.labelZh, meta.labelEn)}
+                  <DropdownMenuItem key={menuItem.id} asChild>
+                    <NavLink
+                      to={to}
+                      onClick={() => setMobileMenuOpen(false)}
+                      aria-current={isActive ? 'page' : undefined}
+                      className={isActive ? 'bg-muted dark:bg-accent' : undefined}
+                    >
+                      <Icon className="mr-3 h-4 w-4" />
+                      {t(meta.labelZh, meta.labelEn)}
+                    </NavLink>
                   </DropdownMenuItem>
                 );
-              })}
-            </DropdownMenuContent>
+              })}            </DropdownMenuContent>
           </DropdownMenu>
 
           {/* User Actions */}
-          <div className="flex items-center gap-2 sm:gap-3 hd-btns lg:hd-btns">
+          <div className="flex items-center gap-2 sm:gap-3">
             {/* Theme Toggle */}
             <Tooltip>
               <TooltipTrigger asChild>

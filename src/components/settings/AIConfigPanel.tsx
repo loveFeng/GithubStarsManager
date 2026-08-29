@@ -13,6 +13,7 @@ import { useAIConfigActions } from '../../features/settings/hooks/useAIConfigAct
 import { buildFinalApiUrl } from '../../utils/apiUrlBuilder';
 import { SliderInput } from '../ui/SliderInput';
 import { useDialog } from '../../hooks/useDialog';
+import { useAppNavigation } from '../../routing/useAppNavigation';
 
 interface AIConfigPanelProps {
   t: (zh: string, en: string) => string;
@@ -92,7 +93,6 @@ export const AIConfigPanel: React.FC<AIConfigPanelProps> = ({ t }) => {
     updateAIConfig,
     deleteAIConfig,
     setActiveAIConfig,
-    setCurrentView,
   } = useAppStore(useShallow((state) => ({
     aiConfigs: state.aiConfigs,
     activeAIConfig: state.activeAIConfig,
@@ -105,8 +105,9 @@ export const AIConfigPanel: React.FC<AIConfigPanelProps> = ({ t }) => {
     updateAIConfig: state.updateAIConfig,
     deleteAIConfig: state.deleteAIConfig,
     setActiveAIConfig: state.setActiveAIConfig,
-    setCurrentView: state.setCurrentView,
   })));
+
+  const { navigateToView } = useAppNavigation();
 
   const { toast, confirm } = useDialog();
   const { testingId, testingForm, testConfig, testDraft } = useAIConfigActions({ t });
@@ -241,7 +242,7 @@ export const AIConfigPanel: React.FC<AIConfigPanelProps> = ({ t }) => {
       if (!activeAIConfig) setActiveAIConfig(config.id);
       resetForm();
       if (sessionStorage.getItem('gsm:repository-chat-return')) {
-        setCurrentView('repositories');
+        navigateToView('repositories');
       }
       return;
     }

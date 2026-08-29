@@ -253,9 +253,12 @@ export class GitHubApiService {
           response = await fetch(proxyUrl, {
             method: 'POST',
             signal,
+            credentials: 'include',
             headers: this.getBackendHeaders(),
             body: JSON.stringify(proxyBody),
           });
+        } else if (!this.token || this.token === 'backend-proxy') {
+          throw new Error('Backend proxy required — direct GitHub API is disabled in web mode');
         } else {
           response = await fetch(`${GITHUB_API_BASE}${endpoint}`, {
             ...fetchOptions,

@@ -352,12 +352,13 @@ router.post('/api/proxy/ai', async (req, res) => {
 router.post('/api/proxy/webdav', async (req, res) => {
   try {
     const db = getDb();
-    const { configId, method, path, body: requestBody, headers: extraHeaders } = req.body as {
+    const { configId, method, path, body: requestBody, headers: extraHeaders, responseType } = req.body as {
       configId: string;
       method: string;
       path: string;
       body?: string;
       headers?: Record<string, string>;
+      responseType?: 'json' | 'text';
     };
 
     if (!configId) {
@@ -393,6 +394,12 @@ router.post('/api/proxy/webdav', async (req, res) => {
       headers['Content-Type'] = headers['Content-Type'] || 'application/xml';
     }
 
+    const wantsText =
+      responseType === 'text'
+      || method === 'PROPFIND'
+      || method === 'HEAD'
+      || method === 'OPTIONS';
+
     const proxyConfig = getProxyConfig();
     const result = await proxyRequest({
       url: targetUrl,
@@ -401,11 +408,19 @@ router.post('/api/proxy/webdav', async (req, res) => {
       body: requestBody,
       timeout: 60000,
       proxyConfig,
+      preserveRawResponse: wantsText,
       // 用户自有配置来源的 WebDAV 地址：放行回环/私有网段（局域网 NAS 等）
       allowPrivate: true,
     });
 
     relayRateLimitHeaders(res, result.headers);
+
+    if (wantsText || typeof result.data === 'string') {
+      const contentType = String(result.headers['content-type'] || 'text/plain');
+      res.status(result.status).type(contentType).send(result.data);
+      return;
+    }
+
     res.status(result.status).json(result.data);
   } catch (err) {
     logger.errorFromError('proxy.webdav', 'WebDAV proxy error', err);

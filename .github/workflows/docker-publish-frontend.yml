@@ -1,3 +1,6 @@
+# DEPRECATED — split nginx frontend image. New deployments should use docker-publish-fullstack.yml
+# (ghcr.io/.../github-stars-manager-fullstack). This workflow may be removed in a future release.
+
 name: Publish Frontend Docker Image to GHCR
 
 on:

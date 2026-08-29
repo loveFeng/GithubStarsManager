@@ -3,7 +3,6 @@ import { useShallow } from 'zustand/react/shallow';
 import type { ProxyConfig, RpcDownloadConfig } from '../../../types';
 import { useAppStore } from '../../../store/useAppStore';
 import { backend } from '../../../services/backendAdapter';
-import { electronProxy, isElectron } from '../../../services/electronProxy';
 import { testRpcDownload } from '../../../services/rpcDownloadService';
 
 interface UseNetworkActionsOptions {
@@ -42,9 +41,7 @@ export interface NetworkActions {
 }
 
 /**
- * Owns all service-facing network settings operations. Local persistence remains
- * in the existing store, preserving its intentional proxy-password/RPC-secret
- * asymmetry.
+ * Owns all service-facing network settings operations via the required backend.
  */
 export const useNetworkActions = ({ t }: UseNetworkActionsOptions): NetworkActions => {
   const { proxyConfig, setProxyConfig, rpcDownloadConfig, setRpcDownloadConfig, backendApiSecret } = useAppStore(useShallow((state) => ({
@@ -84,7 +81,7 @@ export const useNetworkActions = ({ t }: UseNetworkActionsOptions): NetworkActio
       try {
         const base = await getRpcBaseUrl();
         const headers: Record<string, string> = backendApiSecret ? { Authorization: `Bearer ${backendApiSecret}` } : {};
-        const response = await fetch(`${base}/settings/rpc-download`, { headers });
+        const response = await fetch(`${base}/settings/rpc-download`, { headers, credentials: 'include' });
         if (!response.ok) return;
         const data = await response.json() as Partial<RpcDownloadConfig> & { hasSecret?: boolean };
         if (data.hasSecret) setHasStoredSecret(true);
@@ -112,13 +109,14 @@ export const useNetworkActions = ({ t }: UseNetworkActionsOptions): NetworkActio
   }), [backendApiSecret]);
 
   const putProxy = useCallback(async (config: ProxyConfig) => {
-    if (isElectron()) await electronProxy.setProxy(config);
-    if (backend.isAvailable) {
-      const response = await fetch('/api/settings/proxy', {
-        method: 'PUT', headers: backendHeaders(), body: JSON.stringify(config),
-      });
-      if (!response.ok) throw new Error(`Backend returned ${response.status}`);
-    }
+    if (!backend.isAvailable) throw new Error('Backend not available');
+    const response = await fetch('/api/settings/proxy', {
+      method: 'PUT',
+      headers: backendHeaders(),
+      credentials: 'include',
+      body: JSON.stringify(config),
+    });
+    if (!response.ok) throw new Error(`Backend returned ${response.status}`);
   }, [backendHeaders]);
 
   const isFormValid = !form.enabled || Boolean(form.host.trim() && form.port >= 1 && form.port <= 65535);
@@ -128,33 +126,28 @@ export const useNetworkActions = ({ t }: UseNetworkActionsOptions): NetworkActio
     if (!isFormValid) return;
     setSaving(true);
     setTestResult(null);
-    const previous = proxyConfig;
     try {
       await putProxy(form);
-      // Store persists the complete proxy configuration, including authentication credentials.
       setProxyConfig(form);
     } catch (reason) {
-      if (isElectron()) {
-        try { await electronProxy.setProxy(previous); } catch { /* best-effort rollback */ }
-      }
       setTestResult({ success: false, error: reason instanceof Error ? reason.message : t('保存失败', 'Save failed') });
     } finally {
       setSaving(false);
     }
-  }, [form, isFormValid, proxyConfig, putProxy, setProxyConfig, t]);
+  }, [form, isFormValid, putProxy, setProxyConfig, t]);
 
   const testProxy = useCallback(async () => {
     setTesting(true);
     setTestResult(null);
     try {
-      if (isElectron()) {
-        setTestResult(await electronProxy.testProxy(form));
-      } else if (backend.isAvailable) {
-        const response = await fetch('/api/settings/proxy/test', {
-          method: 'POST', headers: backendHeaders(), body: JSON.stringify(form),
-        });
-        setTestResult(await response.json() as ConnectionResult);
-      }
+      if (!backend.isAvailable) throw new Error('Backend not available');
+      const response = await fetch('/api/settings/proxy/test', {
+        method: 'POST',
+        headers: backendHeaders(),
+        credentials: 'include',
+        body: JSON.stringify(form),
+      });
+      setTestResult(await response.json() as ConnectionResult);
     } catch (reason) {
       setTestResult({ success: false, error: reason instanceof Error ? reason.message : 'Unknown error' });
     } finally {
@@ -165,7 +158,6 @@ export const useNetworkActions = ({ t }: UseNetworkActionsOptions): NetworkActio
   const toggleProxy = useCallback(async (enabled: boolean) => {
     if (isProxyToggling) return;
     const previousForm = form;
-    const previousConfig = proxyConfig;
     const nextConfig = { ...proxyConfig, enabled };
     setIsProxyToggling(true);
     setForm((current) => ({ ...current, enabled }));
@@ -174,9 +166,6 @@ export const useNetworkActions = ({ t }: UseNetworkActionsOptions): NetworkActio
       await putProxy(nextConfig);
       setProxyConfig(nextConfig);
     } catch (reason) {
-      if (isElectron()) {
-        try { await electronProxy.setProxy(previousConfig); } catch { /* best-effort rollback */ }
-      }
       setForm(previousForm);
       setTestResult({ success: false, error: reason instanceof Error ? reason.message : t('保存失败', 'Save failed') });
     } finally {
@@ -185,13 +174,15 @@ export const useNetworkActions = ({ t }: UseNetworkActionsOptions): NetworkActio
   }, [form, isProxyToggling, proxyConfig, putProxy, setProxyConfig, t]);
 
   const putRpc = useCallback(async (config: RpcDownloadConfig) => {
-    if (!backend.isAvailable) return;
+    if (!backend.isAvailable) throw new Error('Backend not available');
     const base = await getRpcBaseUrl();
     const body: Record<string, unknown> = { enabled: config.enabled, host: config.host, port: config.port };
-    // Empty field means retain existing backend secret; non-empty updates it.
     if (config.secret) body.secret = config.secret;
     const response = await fetch(`${base}/settings/rpc-download`, {
-      method: 'PUT', headers: backendHeaders(), body: JSON.stringify(body),
+      method: 'PUT',
+      headers: backendHeaders(),
+      credentials: 'include',
+      body: JSON.stringify(body),
     });
     if (!response.ok) throw new Error(`Backend returned ${response.status}`);
   }, [backendHeaders, getRpcBaseUrl]);
@@ -202,7 +193,6 @@ export const useNetworkActions = ({ t }: UseNetworkActionsOptions): NetworkActio
     setRpcTestResult(null);
     try {
       await putRpc(rpcForm);
-      // Unlike proxy passwords, secret is intentionally retained by store partialize.
       setRpcDownloadConfig(rpcForm);
       if (rpcForm.secret) setHasStoredSecret(true);
     } catch (reason) {
@@ -243,7 +233,7 @@ export const useNetworkActions = ({ t }: UseNetworkActionsOptions): NetworkActio
   }, [isRpcToggling, putRpc, rpcDownloadConfig, rpcForm, setRpcDownloadConfig, t]);
 
   return {
-    canUseProxy: isElectron() || backend.isAvailable,
+    canUseProxy: backend.isAvailable,
     form, rpcForm, testing, saving, isProxyToggling, testResult,
     rpcTesting, rpcSaving, isRpcToggling, rpcTestResult, hasStoredSecret,
     isFormValid, isRpcFormValid,

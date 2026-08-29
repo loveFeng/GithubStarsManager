@@ -8,22 +8,16 @@ const mocks = vi.hoisted(() => ({
   setProxyConfig: vi.fn(),
   setRpcDownloadConfig: vi.fn(),
   backendInit: vi.fn(),
-  electronSetProxy: vi.fn(),
-  electronTestProxy: vi.fn(),
   testRpcDownload: vi.fn(),
 }));
 
 vi.mock('../../../store/useAppStore', () => ({ useAppStore: mocks.useAppStore }));
 vi.mock('../../../services/backendAdapter', () => ({
   backend: {
-    isAvailable: false,
-    backendUrl: undefined,
+    isAvailable: true,
+    backendUrl: 'http://localhost:3000/api',
     init: mocks.backendInit,
   },
-}));
-vi.mock('../../../services/electronProxy', () => ({
-  isElectron: () => false,
-  electronProxy: { setProxy: mocks.electronSetProxy, testProxy: mocks.electronTestProxy },
 }));
 vi.mock('../../../services/rpcDownloadService', () => ({ testRpcDownload: mocks.testRpcDownload }));
 
@@ -60,17 +54,21 @@ describe('useNetworkActions', () => {
       selector ? selector(storeState) : storeState
     )) as typeof useAppStore);
     Object.assign(mockUseAppStore, { getState: () => storeState });
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ success: true }),
+    })));
   });
 
-  it('keeps settings usable when the optional backend is unavailable', async () => {
+  it('exposes proxy controls when backend is available', async () => {
     const { result } = renderHook(() => useNetworkActions({ t: (zh) => zh }));
 
-    expect(result.current.canUseProxy).toBe(false);
+    expect(result.current.canUseProxy).toBe(true);
     await act(async () => { await result.current.testRpc(); });
     expect(mocks.testRpcDownload).toHaveBeenCalledWith(rpcDownloadConfig, undefined);
   });
 
-  it('passes the proxy password to the Store so it persists with the proxy configuration', async () => {
+  it('persists proxy password through the store after a successful backend save', async () => {
     const { result } = renderHook(() => useNetworkActions({ t: (zh) => zh }));
 
     await act(async () => { await result.current.saveProxy(); });
@@ -78,7 +76,7 @@ describe('useNetworkActions', () => {
     expect(mocks.setProxyConfig).toHaveBeenCalledWith(expect.objectContaining({ password: 'proxy-password' }));
   });
 
-  it('passes the RPC secret to the store action so its intentional persistence is retained', async () => {
+  it('keeps RPC secret in the store partialize path after save', async () => {
     const { result } = renderHook(() => useNetworkActions({ t: (zh) => zh }));
 
     await act(async () => { await result.current.saveRpc(); });

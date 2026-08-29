@@ -174,6 +174,10 @@ export class GitHubListsApiService {
     this.backendAuthToken = token;
   }
 
+  private requiresBackendProxy(): boolean {
+    return this.backendUrl !== null && (!this.token || this.token === 'backend-proxy');
+  }
+
   private getBackendHeaders(): Record<string, string> {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (this.backendAuthToken) {
@@ -244,7 +248,7 @@ export class GitHubListsApiService {
           }
           // 仅代理层自身失败才切 sticky 直连（网络/非 JSON 5xx/带后端 code/details 的 5xx）；
           // 健康代理转发的 GitHub 瞬时错误（限流、上游 5xx）保持走代理按退避重试。
-          if (e.proxyLayerFailure && this.backendUrl && !this.proxyFailed) {
+          if (e.proxyLayerFailure && this.backendUrl && !this.proxyFailed && !this.requiresBackendProxy()) {
             this.proxyFailed = true;
             logger.warn('githubLists', 'Backend proxy failed, falling back to direct connection', { error: e.message });
           }
@@ -255,11 +259,11 @@ export class GitHubListsApiService {
           continue;
         }
         if (e instanceof BackendTokenMissingError) {
-          // 后端未配置 token（如首次同步前尚未同步成功），前端持有 token，直连即可，无需退避。
-          // 400 在转发到 GitHub 前返回，mutation 确定未执行，可安全重放。
           lastError = e;
-          this.proxyFailed = true;
-          logger.warn('githubLists', 'Backend token missing, falling back to direct connection');
+          if (!this.requiresBackendProxy()) {
+            this.proxyFailed = true;
+            logger.warn('githubLists', 'Backend token missing, falling back to direct connection');
+          }
           continue;
         }
         // 单次尝试的内部超时（如代理请求停滞）会中止组合 controller，fetch 以 AbortError 失败。
@@ -275,7 +279,7 @@ export class GitHubListsApiService {
             break;
           }
           // 仅当超时发生在这步的代理请求上才切直连（直连超时无可切对象）。
-          if (useProxy && this.backendUrl && !this.proxyFailed) {
+          if (useProxy && this.backendUrl && !this.proxyFailed && !this.requiresBackendProxy()) {
             this.proxyFailed = true;
             logger.warn('githubLists', 'Request timeout, falling back to direct connection');
           }
@@ -335,6 +339,7 @@ export class GitHubListsApiService {
         const proxyUrl = `${this.backendUrl}/proxy/github/graphql`;
         response = await fetch(proxyUrl, {
           method: 'POST',
+          credentials: 'include',
           headers: this.getBackendHeaders(),
           signal,
           body: JSON.stringify({
@@ -343,6 +348,8 @@ export class GitHubListsApiService {
             body: JSON.parse(body),
           }),
         });
+      } else if (this.requiresBackendProxy()) {
+        throw new Error('Backend proxy required — direct GitHub GraphQL is disabled in web mode');
       } else {
         response = await fetch(GITHUB_GRAPHQL_ENDPOINT, {
           method: 'POST',

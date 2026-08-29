@@ -464,10 +464,7 @@ export const DiscoveryView: React.FC = React.memo(() => {
   const appliedTopicRef = useRef<{ topic: string | null; platform: DiscoveryPlatform } | null>(null);
 
   const isAnalyzingThisChannel = isAnalyzing && analysisProgress.total > 0;
-  const isDesktopSafeMode = useMemo(() => {
-    if (typeof window === 'undefined') return false;
-    return window.location.protocol === 'file:' || navigator.userAgent.includes('Electron');
-  }, []);
+  const isDesktopSafeMode = false;
   const safeDiscoveryChannels = useMemo(
     () => Array.isArray(discoveryChannels) ? discoveryChannels.filter(Boolean) : [],
     [discoveryChannels]

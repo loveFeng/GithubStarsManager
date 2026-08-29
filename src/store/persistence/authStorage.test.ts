@@ -1,35 +1,51 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  clearAuthMirror,
+  readAuthMirror,
+  writeAuthMirror,
   readSessionBackendSecret,
   writeSessionBackendSecret,
 } from './authStorage';
 
-const BACKEND_SECRET_SESSION_KEY = 'github-stars-manager-backend-secret';
-
-describe('session backend-secret storage', () => {
+describe('auth mirror storage', () => {
   beforeEach(() => {
-    window.sessionStorage.clear();
+    window.localStorage.clear();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it('writes, reads, and clears the session-scoped secret when storage is available', () => {
-    writeSessionBackendSecret('session-secret');
-    expect(readSessionBackendSecret()).toBe('session-secret');
+  it('persists only non-sensitive user profile fields', () => {
+    const user = {
+      login: 'octocat',
+      id: 1,
+      avatar_url: 'https://github.com/octocat.png',
+      name: 'Octocat',
+      html_url: 'https://github.com/octocat',
+      email: null,
+    };
 
-    writeSessionBackendSecret(null);
-    expect(window.sessionStorage.getItem(BACKEND_SECRET_SESSION_KEY)).toBeNull();
+    writeAuthMirror({ user });
+    const mirror = readAuthMirror();
+    expect(mirror).toEqual({ user });
+
+    const raw = JSON.parse(window.localStorage.getItem('github-stars-manager-auth') || '{}');
+    expect(raw.githubToken).toBeUndefined();
+    expect(raw.backendApiSecret).toBeUndefined();
   });
 
-  it('falls back safely when browsers block sessionStorage access', () => {
-    vi.spyOn(window, 'sessionStorage', 'get').mockImplementation(() => {
-      throw new DOMException('Storage is blocked', 'SecurityError');
-    });
+  it('clears mirror on logout cleanup', () => {
+    writeAuthMirror({ user: null });
+    clearAuthMirror();
+    expect(readAuthMirror()).toBeNull();
+  });
+});
 
+describe('session backend-secret storage (deprecated)', () => {
+  it('no longer persists secrets in sessionStorage', () => {
+    writeSessionBackendSecret('session-secret');
     expect(readSessionBackendSecret()).toBeNull();
-    expect(() => writeSessionBackendSecret('session-secret')).not.toThrow();
-    expect(() => writeSessionBackendSecret(null)).not.toThrow();
+    expect(window.sessionStorage.getItem('github-stars-manager-backend-secret')).toBeNull();
   });
 });

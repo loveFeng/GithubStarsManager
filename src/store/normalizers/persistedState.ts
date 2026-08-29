@@ -39,11 +39,11 @@ export const normalizePersistedState = (
   const resolvedGithubToken =
     typeof safePersisted.githubToken === 'string'
       ? safePersisted.githubToken
-      : (authMirror?.githubToken ?? null);
+      : null;
   const resolvedBackendApiSecret =
     typeof safePersisted.backendApiSecret === 'string'
       ? (safePersisted.backendApiSecret || null)
-      : (authMirror?.backendApiSecret ?? currentState.backendApiSecret ?? null);
+      : (currentState.backendApiSecret ?? null);
 
   const repositories = Array.isArray(safePersisted.repositories) ? safePersisted.repositories : [];
   const gists = Array.isArray(safePersisted.gists) ? safePersisted.gists : [];

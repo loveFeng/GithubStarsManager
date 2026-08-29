@@ -8,6 +8,12 @@ interface Config {
   encryptionKey: string;
   dbPath: string;
   nodeEnv: string;
+  isProductionOrDocker: boolean;
+}
+
+/** True when running a production or full-stack Docker/static deployment. */
+export function isProductionOrDockerEnv(): boolean {
+  return process.env.NODE_ENV === 'production' || Boolean(process.env.STATIC_DIR);
 }
 
 /** Resolve the data directory path, creating it if it doesn't exist. */
@@ -77,13 +83,22 @@ function resolveEncryptionKey(dataDir: string): string {
 /** Load all server configuration from environment variables and defaults. */
 function loadConfig(): Config {
   const dataDir = resolveDataDir();
+  const isProductionOrDocker = isProductionOrDockerEnv();
+  const apiSecret = process.env.API_SECRET || null;
+
+  if (isProductionOrDocker && !apiSecret) {
+    throw new Error(
+      'API_SECRET is required when NODE_ENV=production or STATIC_DIR is set. Refusing to start.',
+    );
+  }
 
   return {
     port: parseInt(process.env.PORT || '3000', 10),
-    apiSecret: process.env.API_SECRET || null,
+    apiSecret,
     encryptionKey: resolveEncryptionKey(dataDir),
     dbPath: process.env.DB_PATH || path.join(dataDir, 'data.db'),
     nodeEnv: process.env.NODE_ENV || 'development',
+    isProductionOrDocker,
   };
 }
 

@@ -1,4 +1,5 @@
 import { act, render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => {
@@ -7,7 +8,9 @@ const mocks = vi.hoisted(() => {
     currentView: 'repositories',
     selectedCategory: 'all',
     theme: 'light',
+    themePreset: 'default',
     hasHydrated: true,
+    language: 'en' as const,
     searchResults: [],
     searchFilters: {
       query: '',
@@ -28,18 +31,10 @@ const mocks = vi.hoisted(() => {
     useAppStore: vi.fn((selector?: (state: typeof storeState) => unknown) =>
       selector ? selector(storeState) : storeState,
     ),
-    backend: {
-      init: vi.fn(),
-      isAvailable: true,
-      syncSettings: vi.fn(),
-    },
-    syncFromBackend: vi.fn(),
-    startAutoSync: vi.fn(),
-    stopAutoSync: vi.fn(),
-    tryRestoreAuthFromBackend: vi.fn(),
-    startMcpElectronBridge: vi.fn(),
-    stopMcpElectronBridge: vi.fn(),
-    refreshMcpElectronBridge: vi.fn(),
+    useBackendLifecycle: vi.fn((): { status: 'ready' | 'unavailable' | 'connecting' | 'idle'; retry: ReturnType<typeof vi.fn> } => ({
+      status: 'ready',
+      retry: vi.fn(),
+    })),
     useAutoUpdateCheck: vi.fn(),
     loadedViews: new Set<string>(),
   };
@@ -50,7 +45,6 @@ Object.assign(mocks.useAppStore, {
 });
 
 vi.mock('./store/useAppStore', () => ({ useAppStore: mocks.useAppStore }));
-vi.mock('./services/backendAdapter', () => ({ backend: mocks.backend }));
 vi.mock('./services/logger', () => ({
   logger: {
     setLevel: vi.fn(),
@@ -63,21 +57,12 @@ vi.mock('./services/logger', () => ({
   },
 }));
 vi.mock('./hooks/useAutoUpdateCheck', () => ({ useAutoUpdateCheck: mocks.useAutoUpdateCheck }));
-vi.mock('./services/mcpElectronBridge', () => ({
-  startMcpElectronBridge: mocks.startMcpElectronBridge,
-  stopMcpElectronBridge: mocks.stopMcpElectronBridge,
-  refreshMcpElectronBridge: mocks.refreshMcpElectronBridge,
+vi.mock('./features/lifecycle/useBackendLifecycle', () => ({
+  useBackendLifecycle: mocks.useBackendLifecycle,
 }));
-vi.mock('./services/autoSync', async () => {
-  const actual = await vi.importActual<typeof import('./services/autoSync')>('./services/autoSync');
-  return {
-    ...actual,
-    syncFromBackend: mocks.syncFromBackend,
-    startAutoSync: mocks.startAutoSync,
-    stopAutoSync: mocks.stopAutoSync,
-    tryRestoreAuthFromBackend: mocks.tryRestoreAuthFromBackend,
-  };
-});
+vi.mock('./routing/useViewRouteSync', () => ({
+  useViewRouteSync: vi.fn(),
+}));
 
 vi.mock('./components/LoginScreen', () => ({ LoginScreen: () => null }));
 vi.mock('./components/Header', () => ({ Header: () => null }));
@@ -110,47 +95,38 @@ vi.mock('./components/ErrorBoundary', () => ({ ErrorBoundary: ({ children }: { c
 vi.mock('./components/SyncModeChoiceModal', () => ({ SyncModeChoiceModal: () => null }));
 vi.mock('./components/UpdateNotificationBanner', () => ({ UpdateNotificationBanner: () => null }));
 vi.mock('./components/ListsPushIndicator', () => ({ ListsPushIndicator: () => null }));
+vi.mock('./components/ui/button', () => ({
+  Button: ({ children, ...props }: { children?: unknown }) => <button type="button" {...props}>{children as never}</button>,
+}));
 
 import App from './App';
 
-describe('App backend initialization', () => {
+function renderApp(initialPath = '/repositories') {
+  return render(
+    <MemoryRouter initialEntries={[initialPath]}>
+      <App />
+    </MemoryRouter>,
+  );
+}
+
+describe('App shell', () => {
   beforeEach(() => {
-    vi.useFakeTimers();
     vi.clearAllMocks();
     mocks.storeState.currentView = 'repositories';
+    mocks.storeState.isAuthenticated = true;
+    mocks.storeState.hasHydrated = true;
     mocks.loadedViews.clear();
-    mocks.backend.isAvailable = true;
-    mocks.backend.init.mockResolvedValue(undefined);
-    mocks.tryRestoreAuthFromBackend.mockResolvedValue(false);
-    mocks.startAutoSync.mockReturnValue(vi.fn());
-    mocks.backend.syncSettings.mockImplementation(
-      (_settings: Record<string, unknown>, signal: AbortSignal) =>
-        new Promise((_resolve, reject) => {
-          signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
-        }),
-    );
+    mocks.useBackendLifecycle.mockReturnValue({ status: 'ready', retry: vi.fn() });
   });
 
-  it('continues backend loading after a pending local token sync reaches its deadline', async () => {
-    render(<App />);
-
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(mocks.syncFromBackend).not.toHaveBeenCalled();
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5000);
-    });
-
-    expect(mocks.backend.syncSettings).toHaveBeenCalledOnce();
-    expect(mocks.syncFromBackend).toHaveBeenCalledOnce();
-    expect(mocks.startAutoSync).toHaveBeenCalledOnce();
+  it('shows backend unavailable screen when lifecycle reports unavailable', () => {
+    mocks.useBackendLifecycle.mockReturnValue({ status: 'unavailable', retry: vi.fn() });
+    renderApp();
+    expect(screen.getByRole('heading', { name: /backend unavailable|无法连接后端/i })).toBeInTheDocument();
   });
 
   it('renders repositories before dormant views load, then resolves every lazy primary view after a view switch', async () => {
-    vi.useRealTimers();
-    const { rerender } = render(<App />);
+    renderApp('/repositories');
 
     expect(screen.getByTestId('repositories-view')).toBeInTheDocument();
     await act(async () => {
@@ -159,21 +135,22 @@ describe('App backend initialization', () => {
     expect(mocks.loadedViews).toEqual(new Set());
 
     const lazyViews = [
-      ['settings', 'settings-view'],
-      ['subscription', 'subscription-view'],
-      ['gists', 'gists-view'],
-      ['releases', 'releases-view'],
-      ['forks', 'forks-view'],
+      ['/settings/general', 'settings', 'settings-view'],
+      ['/discovery', 'subscription', 'subscription-view'],
+      ['/gists', 'gists', 'gists-view'],
+      ['/releases', 'releases', 'releases-view'],
+      ['/forks', 'forks', 'forks-view'],
     ] as const;
 
-    for (const [currentView, testId] of lazyViews) {
+    for (const [path, currentView, testId] of lazyViews) {
+      mocks.storeState.currentView = currentView;
+      const { unmount } = renderApp(path);
       await act(async () => {
-        mocks.storeState.currentView = currentView;
-        rerender(<App />);
         await Promise.resolve();
       });
       expect(screen.getByTestId(testId)).toBeInTheDocument();
       expect(mocks.loadedViews).toContain(currentView);
+      unmount();
     }
   });
 });

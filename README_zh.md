@@ -29,7 +29,7 @@
 | **AI 摘要与分类** | 使用 AI 生成标签、主题和简短 README 概览 |
 | **语义搜索** | 按意图而非精确名称查找仓库 |
 | **向量语义搜索** | 将仓库描述/README 嵌入 Cloudflare Vectorize 向量库，自然语言查询实现高精度语义匹配 |
-| **MCP 服务** | 可选 Streamable HTTP / SSE，供 Claude Code、Cursor 等 Agent 检索 AI 加工后的星标；需后端或 Electron/客户端（纯前端模式不显示）；设置中开关，无需额外安装 |
+| **MCP 服务** | 可选 Streamable HTTP / SSE，供 Claude Code、Cursor 等 Agent 检索 AI 加工后的星标；需后端（Docker 或自建服务器）；设置中开关，无需额外安装 |
 | **仓库问答助手（早期阶段）** | 在单个仓库内进行简单、聚焦的问答，提供提交固定的只读证据、可追溯来源与本地会话历史。它不会索引仓库的全部文件，复杂代码分析建议使用成熟的本地 Coding Agent。 |
 | **仓库页 Release 下载** | 从仓库卡片直接打开该仓库的最新 Release；浏览分页资产、更新日志、源码压缩包和可选 AI 摘要，并通过浏览器或已配置的 RPC 下载器下载。 |
 | **Release 追踪** | 订阅仓库并在统一时间线查看新版本 |
@@ -43,7 +43,7 @@
 | **远程下载 (aria2)** | 通过 aria2 JSON-RPC 将 Release 资产推送到远程下载 |
 | **诊断日志** | 前后端统一日志查看器，支持 Debug 捕获模式 |
 | **双语 Wiki 跳转** | 根据仓库语言跳转到 Deepwiki (EN) 或 zread (ZH) |
-| **客户端打包** | 无需配置环境，下载即用 |
+| **Web 与 Docker** | 单镜像全栈容器或静态站点部署，无需桌面安装包 |
 
 ### 可选后端服务
 
@@ -217,13 +217,21 @@
 - **构建工具**: Vite
 - **部署**: Netlify
 
-## 💻 桌面客户端（推荐）
-
-直接下载桌面客户端，无需配置环境：
-
-https://github.com/AmintaCCCP/GithubStarsManager/releases
-
 ## 快速开始
+
+> **说明：** Electron 桌面客户端已移除。自托管请使用 Docker；本地开发见下文。
+
+### Docker 部署（自托管推荐）
+
+单镜像全栈 — 网页、`/api`、MCP 同源。启动前设置 `API_SECRET`：
+
+```bash
+echo 'API_SECRET=替换为足够长的随机密钥' > .env
+docker compose up -d
+# http://localhost:8080
+```
+
+HTTPS 反代（Caddy/Traefik）、SQLite 限制、备份与升级步骤见 [DOCKER_zh.md](DOCKER_zh.md)。
 
 ### 1. 克隆项目
 ```bash
@@ -241,7 +249,7 @@ npm install
 npm run dev
 ```
 
-> 💡 本地使用 `npm run dev` 运行项目时，AI 服务和 WebDAV 的调用可能因浏览器 CORS 限制而失败。建议使用预编译客户端，或启动后端服务器（`cd server && npm run dev`）代理 API 请求以完全避免 CORS 问题。
+> 💡 本地使用 `npm run dev` 时，AI 与 WebDAV 可能因 CORS 失败。可启动后端（`cd server && npm run dev`）或使用 Docker 全栈镜像代理请求。
 
 ### 4. 构建生产版本
 ```bash
@@ -272,7 +280,7 @@ npm run build
 - **协议级测试** — 连接测试执行真实的协议握手，而非简单 TCP 连接
 - **加密存储** — 代理密码使用 AES-256-GCM 加密存储
 
-在设置 → 网络标签页中配置（Electron 客户端或后端服务器可用时显示）。
+在设置 → 网络标签页中配置（连接后端服务器时可用）。
 
 ![network](upload/network.png)
 
@@ -324,13 +332,13 @@ npm run build
 
 让 Agent（Claude Code、Cursor 等）通过 [Model Context Protocol](https://modelcontextprotocol.io/) 读取并检索 AI 加工后的星标仓库（摘要、标签、分类）。
 
-- **Streamable HTTP**（推荐）：应用同源 `POST /mcp`（后端/Docker 模式）或 `http://127.0.0.1:3927/mcp`（客户端本地模式）
-- **旧版 SSE**：`/mcp/sse` + `/mcp/sse/messages`（后端），`/sse` + `/messages`（客户端）— 供旧客户端使用
+- **Streamable HTTP**（推荐）：应用同源 `POST /mcp`（后端/Docker 模式）
+- **旧版 SSE**：`/mcp/sse` + `/mcp/sse/messages`（后端/Docker）
 - **Bearer Token 鉴权**，Token（`gsm_mcp_...`）稳定不变：开启时生成一次、重启后保持不变、仅在重置时更换
 
-**开启方式：** 设置 → MCP 服务 → 打开开关。面板会显示端点地址、Token 以及一键复制（JSON）的 Agent 配置，同时提供 Streamable HTTP 与 SSE 两套配置，无需额外安装。
+**开启方式：** 设置 → MCP 服务 → 打开开关。面板会显示端点地址、Token 以及一键复制（JSON）的 Agent 配置。
 
-> 💡 MCP Token 与后端 `API_SECRET` 相互独立。纯前端（无后端）模式不显示 MCP 设置页；需要桌面（Electron）客户端或已连接后端时可用。
+> 💡 MCP Token 与后端 `API_SECRET` 相互独立。纯前端（无后端）模式不显示 MCP 设置页。
 
 **暴露的工具（全部只读）：**
 
@@ -343,8 +351,6 @@ npm run build
 | `gsm_list_repos_by_category` | 分页列出某分类下的仓库 |
 | `gsm_stats` | 聚合统计（语言、分析、标签） |
 | `gsm_vector_search` | 语义向量搜索 — 仅当已配置并启用向量搜索时列出 |
-
-**桌面（Electron）说明：** 仅绑定回环地址（`127.0.0.1`），只能本机 Agent 访问；可在设置中调整主机/端口（默认端口 `3927`）。
 
 ![MCP](upload/mcp.png)
 
@@ -390,62 +396,35 @@ npm run build
 
 ### Docker 部署
 
-GHCR 上提供预构建的**后端和前端**镜像，无需本地构建。现有 Docker 用户可继续使用完全不变的前后端分离 Compose 部署：
+推荐使用全栈单镜像 `ghcr.io/amintacccp/github-stars-manager-fullstack`。在 `.env` 中设置 `API_SECRET` 后：
 
 ```bash
-docker pull ghcr.io/amintacccp/github-stars-manager-server:latest
-docker pull ghcr.io/amintacccp/github-stars-manager-frontend:latest
-docker-compose up -d
+docker compose up -d
 ```
 
-此外，项目新增了一个**可选的全栈单镜像**（`ghcr.io/amintacccp/github-stars-manager-fullstack`），适合希望只运行一个容器、一个镜像标签和一个数据卷的用户。它在同一来源下提供网页、`/api` 和 MCP 端点。先在仓库根目录的 `.env` 设置 `API_SECRET`，全栈 Compose 会拒绝在无认证配置下启动：
+完整说明（HTTPS、SQLite、备份、从旧版分离部署迁移）见 [DOCKER_zh.md](DOCKER_zh.md)。英文见 [DOCKER.md](DOCKER.md)。
 
+> 若镜像为私有，需先 `docker login ghcr.io`（`read:packages` 权限的 [PAT](https://github.com/settings/tokens)）。
+
+### 🖥️ 后端服务器（纯 Web 必需）
+
+生产部署以 Express + SQLite 为唯一数据与代理出口（Docker 单镜像已内置）。后端提供：
+
+- **跨设备同步**: 在不同浏览器和设备间共享数据（SQLite 为主存储）
+- **无 CORS 代理**: GitHub / AI / WebDAV / aria2 请求经服务器转发
+- **令牌安全**: API 密钥加密存储在服务器；浏览器使用 HttpOnly 会话 Cookie
+
+#### 快速启动（Docker）
 ```bash
-API_SECRET=替换为足够长的随机密钥
-docker compose -f docker-compose.fullstack.yml up -d
+echo 'API_SECRET=your-secret' > .env
+docker compose up -d
 ```
+Web 界面在 8080 端口，数据保存在 `backend-data` 卷。详见 [DOCKER_zh.md](DOCKER_zh.md)。
 
-新增方式不会替换或修改现有的前端镜像、后端镜像、`docker-compose.yml`、桌面客户端或 API 路径。规范名称以角色结尾：`-frontend`、`-backend` 与 `-fullstack`；已有用户使用的 `-server` 后端镜像会继续作为兼容别名发布。正式的 `vX.Y.Z` Docker 标签必须与根目录 `package.json` 的客户端版本一致，`latest` 与 `sha-*` 则分别用于开发和提交追溯。完整的中文部署、数据备份、从分离部署迁移和回滚说明请参阅 [DOCKER_zh.md](DOCKER_zh.md)。英文说明请参阅 [DOCKER.md](DOCKER.md)。
-
-> 如果镜像为私有，需先执行 `docker login ghcr.io`（使用具有 `read:packages` 权限的 [PAT](https://github.com/settings/tokens)）。
-
-### 🖥️ 后端服务器（可选）
-
-应用在没有后端的情况下也能完整运行（纯前端，使用 localStorage）。可选的 Express + SQLite 后端提供以下额外功能：
-
-- **跨设备同步**: 在不同浏览器和设备间共享数据
-- **无 CORS 代理**: AI 和 WebDAV 请求通过服务器转发，避免浏览器 CORS 限制
-- **令牌安全**: API 密钥加密存储在服务器，不会暴露在浏览器网络请求中
-
-#### 快速启动（推荐使用 Docker）
+可选 `.env` 配置：
 ```bash
-docker-compose up -d
-```
-前端运行在 8080 端口，后端运行在 3000 端口。数据持久化存储在 Docker 卷中。该现有分离部署方式不会因全栈镜像而变化；需要独立升级、运维或扩缩容前后端时，仍建议继续使用它。若希望简化为单容器部署，请参阅 [DOCKER_zh.md](DOCKER_zh.md)。
-
-自定义配置，创建 `.env` 文件：
-```bash
-API_SECRET=your-secret
 ENCRYPTION_KEY=your-key
-BACKEND_IMAGE_TAG=0.7.8   # 固定后端版本（默认：latest）
-FRONTEND_IMAGE_TAG=0.7.8  # 固定前端版本（默认：latest）
-```
-
-#### 仅后端（docker run）
-```bash
-# 基础运行 — 无认证，端口 3000
-docker run -d --name github-stars-backend \
-  -v github-stars-data:/app/data \
-  -p 3000:3000 \
-  ghcr.io/amintacccp/github-stars-manager-server:latest
-
-# 自定义密钥和端口
-docker run -d --name github-stars-backend \
-  -v github-stars-data:/app/data \
-  -p 3000:3000 \
-  -e API_SECRET="your-secret" \
-  -e ENCRYPTION_KEY="your-key" \
-  ghcr.io/amintacccp/github-stars-manager-server:latest
+IMAGE_TAG=0.7.8   # 固定全栈镜像版本（默认 latest）
 ```
 
 #### 手动启动
@@ -458,7 +437,7 @@ npm run dev
 #### 环境变量
 | 变量 | 必填 | 说明 |
 |----------|----------|-------------|
-| `API_SECRET` | 否 | API 认证令牌。未设置时禁用认证。 |
+| `API_SECRET` | 是（生产/Docker） | API 认证令牌 |
 | `ENCRYPTION_KEY` | 否 | 用于加密存储密钥的 AES-256 密钥。未设置时自动生成。 |
 | `PORT` | 否 | 服务器端口（默认：3000） |
 

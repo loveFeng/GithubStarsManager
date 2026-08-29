@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   Settings,
   Globe,
@@ -20,8 +21,6 @@ import { useAppStore } from '../store/useAppStore';
 import { useShallow } from 'zustand/react/shallow';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogTitle } from './ui/dialog';
-import { isElectron } from '../services/electronProxy';
-import { backend } from '../services/backendAdapter';
 import {
   GeneralPanel,
   AIConfigPanel,
@@ -37,8 +36,9 @@ import {
   VectorSearchSettings,
   McpSettingsPanel,
 } from './settings';
+import { isValidSettingsTab, type SettingsTab as RouteSettingsTab } from '../routing/viewRoutes';
 
-type SettingsTab = 'general' | 'starSync' | 'ai' | 'webdav' | 'backup' | 'backend' | 'category' | 'menu' | 'data' | 'logs' | 'network' | 'vectorSearch' | 'mcp';
+type SettingsTab = RouteSettingsTab;
 
 interface SettingsTabItem {
   id: SettingsTab;
@@ -207,12 +207,17 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   onClose,
   isModal = false 
 }) => {
-  const { language, setCurrentView } = useAppStore(useShallow((state) => ({
+  const { language } = useAppStore(useShallow((state) => ({
     language: state.language,
-    setCurrentView: state.setCurrentView,
   })));
-  const [activeTab, setActiveTab] = useState<SettingsTab>('general');
-  const [displayTab, setDisplayTab] = useState<SettingsTab>('general');
+  const navigate = useNavigate();
+  const { tab: routeTab } = useParams<{ tab?: string }>();
+  const [activeTab, setActiveTab] = useState<SettingsTab>(() =>
+    isValidSettingsTab(routeTab) ? routeTab : 'general'
+  );
+  const [displayTab, setDisplayTab] = useState<SettingsTab>(() =>
+    isValidSettingsTab(routeTab) ? routeTab : 'general'
+  );
   const [isTransitioning, setIsTransitioning] = useState(false);
   const tabChangeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tabResetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -223,7 +228,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     if (onClose) {
       onClose();
     } else {
-      setCurrentView('repositories');
+      navigate('/repositories');
     }
   };
 
@@ -244,12 +249,13 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     tabChangeTimeoutRef.current = setTimeout(() => {
       setActiveTab(tabId);
       setDisplayTab(tabId);
+      navigate(`/settings/${tabId}`, { replace: true });
 
       tabResetTimeoutRef.current = setTimeout(() => {
         setIsTransitioning(false);
       }, 120);
     }, 100);
-  }, [activeTab, isTransitioning]);
+  }, [activeTab, isTransitioning, navigate]);
 
   // 清理定时器
   useEffect(() => {
@@ -273,21 +279,32 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   // where the event fires before the component mounts / handleTabChange is ready)
   const pendingTabRef = useRef<SettingsTab | null>(null);
 
-  // Check sessionStorage for a pending tab (set by DebugModeIndicator before
-  // the view switch, so it survives the SettingsPanel remount)
+  // Sync tab from URL param (supports direct navigation and browser back/forward)
+  useEffect(() => {
+    if (!routeTab) return;
+    if (!isValidSettingsTab(routeTab)) {
+      navigate('/settings/general', { replace: true });
+      return;
+    }
+    if (routeTab !== activeTab && !isTransitioning) {
+      setActiveTab(routeTab);
+      setDisplayTab(routeTab);
+    }
+  }, [routeTab, activeTab, isTransitioning, navigate]);
+
+  // Legacy sessionStorage pending tab (DebugModeIndicator) — migrate to URL
   useEffect(() => {
     const stored = sessionStorage.getItem('gsm:pending-settings-tab');
-    if (stored && VALID_TABS.has(stored)) {
+    if (stored && isValidSettingsTab(stored)) {
       sessionStorage.removeItem('gsm:pending-settings-tab');
-      // Apply a pre-mount navigation synchronously. In React Strict Mode an
-      // animation timer can be cleaned up during the development remount.
-      setActiveTab(stored as SettingsTab);
-      setDisplayTab(stored as SettingsTab);
+      setActiveTab(stored);
+      setDisplayTab(stored);
+      navigate(`/settings/${stored}`, { replace: true });
     } else if (stored) {
       sessionStorage.removeItem('gsm:pending-settings-tab');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Run once on mount to read pending tab from sessionStorage
+  }, []);
 
   // Listen for external tab navigation requests (e.g. from DebugModeIndicator)
   useEffect(() => {
@@ -366,22 +383,21 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
       label: t('诊断日志', 'Diagnostic Logs'),
       icon: <ScrollText className="w-5 h-5" />,
     },
-    ...((isElectron() || backend.isAvailable) ? [{
+    {
       id: 'network' as SettingsTab,
       label: t('网络设置', 'Network'),
       icon: <Wifi className="w-5 h-5" />,
-    }] : []),
+    },
     {
       id: 'vectorSearch' as SettingsTab,
       label: t('向量搜索', 'Vector Search'),
       icon: <Search className="w-5 h-5" />,
     },
-    // MCP requires a long-lived process: backend or Electron main. Hide for pure SPA.
-    ...((isElectron() || backend.isAvailable) ? [{
+    {
       id: 'mcp' as SettingsTab,
       label: t('MCP服务', 'MCP Server'),
       icon: <Cable className="w-5 h-5" />,
-    }] : []),
+    },
   ];
 
   const renderTabContent = () => {

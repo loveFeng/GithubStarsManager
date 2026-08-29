@@ -1,5 +1,6 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { backend } from '../../services/backendAdapter';
+import { useAppStore } from '../../store/useAppStore';
 import {
   startAutoSync,
   stopAutoSync,
@@ -7,21 +8,37 @@ import {
   syncLocalGitHubTokenToBackend,
   tryRestoreAuthFromBackend,
 } from '../../services/autoSync';
-import {
-  refreshMcpElectronBridge,
-  startMcpElectronBridge,
-  stopMcpElectronBridge,
-} from '../../services/mcpElectronBridge';
+import { importBrowserDataToBackendIfNeeded } from '../../services/browserDataImport';
+
+export type BackendLifecycleStatus = 'idle' | 'connecting' | 'ready' | 'unavailable';
 
 /**
- * Owns application-wide backend and Electron MCP startup after Store hydration.
- * Local state remains usable whenever backend probing or remote synchronization
- * fails, and the auto-sync subscription is released on unmount.
+ * Clear stale client auth when the server session cookie is missing.
+ * Keeps non-auth local data so users can still see cached repos after re-login.
  */
-export const useBackendLifecycle = (hasHydrated: boolean): void => {
-  useEffect(() => {
-    return () => stopMcpElectronBridge();
-  }, []);
+function clearStaleClientAuth(): void {
+  const state = useAppStore.getState();
+  if (!state.isAuthenticated && !state.user && !state.githubToken && !state.githubAuthViaBackend) {
+    return;
+  }
+  useAppStore.setState({
+    user: null,
+    githubToken: null,
+    githubAuthViaBackend: false,
+    backendApiSecret: null,
+    isAuthenticated: false,
+  });
+}
+
+/**
+ * Owns application-wide backend startup after Store hydration.
+ * Pure Web deployments require the backend; local-only mode is no longer supported.
+ */
+export const useBackendLifecycle = (
+  hasHydrated: boolean
+): { status: BackendLifecycleStatus; retry: () => void } => {
+  const [status, setStatus] = useState<BackendLifecycleStatus>('idle');
+  const [retryToken, setRetryToken] = useState(0);
 
   useEffect(() => {
     if (!hasHydrated) return;
@@ -30,31 +47,51 @@ export const useBackendLifecycle = (hasHydrated: boolean): void => {
     let cancelled = false;
 
     const initialize = async () => {
+      setStatus('connecting');
       try {
         await backend.init();
-        if (backend.isAvailable && !cancelled) {
-          // Session restoration must precede the data pull so a fresh browser
-          // receives authentication state before it consumes backend records.
-          await tryRestoreAuthFromBackend();
-          if (!cancelled) {
-            await syncLocalGitHubTokenToBackend();
-          }
-          if (!cancelled) {
-            await syncFromBackend();
-          }
-          if (!cancelled) {
-            unsubscribe = startAutoSync();
-          }
+        if (cancelled) return;
+
+        if (!backend.isAvailable) {
+          setStatus('unavailable');
+          return;
         }
+
+        const session = await backend.getSession();
+        if (cancelled) return;
+
+        if (!session?.authenticated) {
+          clearStaleClientAuth();
+          setStatus('ready');
+          return;
+        }
+
+        await tryRestoreAuthFromBackend();
+        if (cancelled) return;
+
+        // If restore failed but cookie exists without GitHub token, stay on login step 2.
+        const afterRestore = useAppStore.getState();
+        if (!afterRestore.isAuthenticated && !session.hasGitHubToken) {
+          clearStaleClientAuth();
+          setStatus('ready');
+          return;
+        }
+
+        await syncLocalGitHubTokenToBackend();
+        if (cancelled) return;
+
+        await syncFromBackend();
+        if (cancelled) return;
+
+        await importBrowserDataToBackendIfNeeded();
+        if (cancelled) return;
+
+        unsubscribe = startAutoSync();
+        setStatus('ready');
       } catch (error) {
-        // Backend availability is optional. Preserve local-only application use.
         console.error('Failed to initialize backend:', error);
-      } finally {
-        // Resolve the Electron MCP target after a successful or failed backend
-        // probe so it can choose backend MCP or the local loopback bridge.
         if (!cancelled) {
-          startMcpElectronBridge();
-          refreshMcpElectronBridge();
+          setStatus('unavailable');
         }
       }
     };
@@ -67,5 +104,10 @@ export const useBackendLifecycle = (hasHydrated: boolean): void => {
         stopAutoSync(unsubscribe);
       }
     };
-  }, [hasHydrated]);
+  }, [hasHydrated, retryToken]);
+
+  return {
+    status,
+    retry: () => setRetryToken((value) => value + 1),
+  };
 };

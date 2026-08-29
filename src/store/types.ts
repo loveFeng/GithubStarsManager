@@ -188,6 +188,7 @@ export interface AppActions {
 
   // Backend actions
   setBackendApiSecret: (secret: string | null) => void;
+  setGitHubAuthViaBackend: (viaBackend: boolean) => void;
 
   // Proxy actions
   setProxyConfig: (updates: Partial<ProxyConfig>) => void;

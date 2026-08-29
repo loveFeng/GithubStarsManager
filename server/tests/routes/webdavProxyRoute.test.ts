@@ -47,10 +47,29 @@ const createTestApp = () => {
 describe('WebDAV proxy route', () => {
   beforeEach(() => {
     proxyRequestMock.mockReset();
-    proxyRequestMock.mockResolvedValue({ status: 200, data: { ok: true }, headers: {} });
+    proxyRequestMock.mockResolvedValue({ status: 207, data: '<xml/>', headers: { 'content-type': 'application/xml' } });
+  });
+
+  it('returns raw XML/text for PROPFIND instead of JSON-wrapping', async () => {
+    const app = createTestApp();
+
+    const res = await request(app)
+      .post('/api/proxy/webdav')
+      .send({
+        configId: 'webdav-1',
+        method: 'PROPFIND',
+        path: '/backup/',
+        body: '<propfind/>',
+        headers: { Depth: '1' },
+      })
+      .expect(207);
+
+    expect(res.text).toBe('<xml/>');
+    expect(res.headers['content-type']).toMatch(/xml/);
   });
 
   it('strips client Authorization headers case-insensitively before adding proxy auth', async () => {
+    proxyRequestMock.mockResolvedValue({ status: 200, data: { ok: true }, headers: {} });
     const app = createTestApp();
 
     await request(app)

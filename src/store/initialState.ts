@@ -18,6 +18,7 @@ export const createInitialState = (): AppState => ({
       // Initial state
       user: null,
       githubToken: null,
+      githubAuthViaBackend: false,
       isAuthenticated: false,
       repositories: [],
       gists: [],

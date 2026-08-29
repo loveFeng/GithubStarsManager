@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { logger } from '../services/logger';
 import { backend } from '../services/backendAdapter';
-import { useAppStore } from '../store/useAppStore';
+import { useAppNavigation } from '../routing/useAppNavigation';
 import { Button } from './ui/button';
 
 /**
@@ -12,7 +12,7 @@ import { Button } from './ui/button';
 export const DebugModeIndicator: React.FC = () => {
   const [frontendDebug, setFrontendDebug] = useState(() => sessionStorage.getItem('gsm:frontend-debug') === 'true');
   const [backendDebug, setBackendDebug] = useState(() => sessionStorage.getItem('gsm:backend-debug') === 'true');
-  const setCurrentView = useAppStore(s => s.setCurrentView);
+  const { navigateToView } = useAppNavigation();
 
   // Sync with sessionStorage changes (e.g. from DiagnosticLogsPanel)
   useEffect(() => {
@@ -50,14 +50,11 @@ export const DebugModeIndicator: React.FC = () => {
     sessionStorage.setItem('gsm:backend-debug', 'false');
     setBackendDebug(false);
 
-    // Navigate to settings → logs tab
-    // Store in sessionStorage BEFORE switching view so the new SettingsPanel
-    // instance can pick it up after remount (event may fire before listener is ready)
-    sessionStorage.setItem('gsm:pending-settings-tab', 'logs');
-    setCurrentView('settings');
+    // Navigate to settings → logs tab via URL
+    navigateToView('settings', { settingsTab: 'logs' });
     // Also dispatch event as a backup for same-instance navigation
     window.dispatchEvent(new CustomEvent('gsm:navigate-to-settings-tab', { detail: { tab: 'logs' } }));
-  }, [setCurrentView]);
+  }, [navigateToView]);
 
   if (!frontendDebug && !backendDebug) return null;
 

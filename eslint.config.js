@@ -9,9 +9,8 @@ import tseslint from 'typescript-eslint';
  * calls or Store mutation; they belong behind a hook in src/features/.../hooks/**.
  * See docs/adr/0001-frontend-layering.md for the layering contract and the phasing rationale.
  *
- * Infrastructure utilities (logger, isElectron/electronProxy, indexedDbStorage,
- * mcpElectronBridge, aiRequestLimiter, discoveryAnalysisStorage) are intentionally NOT
- * banned — they are tools, not orchestration.
+ * Infrastructure utilities (logger, indexedDbStorage, aiRequestLimiter,
+ * discoveryAnalysisStorage) are intentionally NOT banned — they are tools, not orchestration.
  */
 const BANNED_COMPONENT_SERVICES = [
   'githubApi',

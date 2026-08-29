@@ -32,7 +32,7 @@ GitHub Stars Manager automatically syncs your starred repos, uses AI to summariz
 | **AI Summaries & Categories** | Generate tags, topics, and short README overviews using AI |
 | **Semantic Search** | Find repos by intent, not exact names |
 | **Vector Semantic Search** | Embed repo descriptions/READMEs into a Cloudflare Vectorize index; query with natural language for high-precision semantic matching |
-| **MCP Server** | Optional Streamable HTTP / SSE endpoint so agents (Claude Code, Cursor, etc.) can search AI-enriched stars; requires backend or Electron/desktop (hidden on pure frontend); toggle in Settings, no extra install |
+| **MCP Server** | Optional Streamable HTTP / SSE endpoint so agents (Claude Code, Cursor, etc.) can search AI-enriched stars; requires backend (Docker or self-hosted server); toggle in Settings, no extra install |
 | **Repository Q&A Assistant (Early Access)** | Ask simple, focused questions about one repository with commit-pinned, read-only evidence, traceable sources, and local session history. It does not index every repository file, so use a mature local coding agent for complex code analysis. |
 | **Repository Release Downloads** | Open a repository's current releases from its card; browse paginated assets, release notes, source archives, and optional AI summaries, then download in the browser or through a configured RPC downloader. |
 | **Release Tracking** | Subscribe to repos and see new versions in one unified timeline |
@@ -45,7 +45,7 @@ GitHub Stars Manager automatically syncs your starred repos, uses AI to summariz
 | **Remote Download (aria2)** | Send release assets to aria2 for download via JSON-RPC |
 | **Diagnostic Logs** | Unified frontend/backend log viewer with debug capture mode |
 | **Bilingual Wiki Jump** | Deepwiki (EN) or zread (ZH) based on repository language |
-| **Packaged Client** | No environment setup required—download and run |
+| **Web & Docker** | Deploy as a single full-stack container or static site — no desktop installer |
 
 ### Optional Backend Server
 
@@ -222,78 +222,46 @@ Ask concise questions about a single repository directly from its card. Each con
 
 ## 👋🏻 How to Use
 
-### 💻 Desktop Client (Recommended)
+### 🐳 Docker (recommended for self-hosting)
 
-You can download desktop client here:
-https://github.com/AmintaCCCP/GithubStarsManager/releases
+Single full-stack image — SPA, API, and MCP on one origin. Set `API_SECRET` before starting:
 
-### 🤖 Run With code
+```bash
+echo 'API_SECRET=replace-with-a-long-random-secret' > .env
+docker compose up -d
+# http://localhost:8080
+```
+
+See [DOCKER.md](DOCKER.md) for HTTPS reverse proxy (Caddy/Traefik), SQLite limits, backup, and upgrade steps.
+
+> **Note:** The Electron desktop client has been removed. Use Docker or the development server below.
+
+### 🤖 Run with source code
 
 1. Download the source code, or clone the repository
 2. Navigate to the directory, and open a Terminal window at the downloaded folder.
 3. Run `npm install` to install dependencies and `npm run dev` to build
 
-> 💡 When running the project locally using `npm run dev`, calls to AI services and WebDAV may fail due to CORS restrictions. To avoid this issue, use the prebuilt client application or build the client yourself. Alternatively, run the backend server (`cd server && npm run dev`) to proxy API calls and avoid CORS entirely.
+> 💡 When running locally with `npm run dev`, AI and WebDAV calls may fail due to CORS. Run the backend (`cd server && npm run dev`) or use the Docker full-stack image to proxy requests.
 
-### 🐳 Run With Docker
+### 🖥️ Backend Server (required for Web)
 
-Pre-built backend **and frontend** images are available on GHCR — no local build required. Existing Docker users should continue to use the unchanged two-service Compose deployment:
+Production deployments use Express + SQLite as the sole data store and proxy (bundled in the single Docker image). The backend provides:
+- **Cross-device sync**: Share data between browsers/devices (SQLite is source of truth)
+- **CORS-free proxying**: GitHub / AI / WebDAV / aria2 calls go through the server
+- **Token security**: API keys stored encrypted on the server; the browser uses an HttpOnly session cookie
 
+#### Quick Start (Docker)
 ```bash
-docker pull ghcr.io/amintacccp/github-stars-manager-server:latest
-docker pull ghcr.io/amintacccp/github-stars-manager-frontend:latest
-docker-compose up -d
+echo 'API_SECRET=your-secret' > .env
+docker compose up -d
 ```
+Web UI on port 8080. Data persists in the `backend-data` volume. See [DOCKER.md](DOCKER.md).
 
-An additional **optional full-stack image** (`ghcr.io/amintacccp/github-stars-manager-fullstack`) is available for users who prefer one container, one image tag, and one persistent data volume. It serves the same web UI, `/api`, and MCP endpoints from one origin. Set `API_SECRET` in a root `.env` file first; the full-stack Compose file refuses to start a new unauthenticated deployment:
-
+Optional `.env` keys:
 ```bash
-API_SECRET=replace-with-a-long-random-secret
-docker compose -f docker-compose.fullstack.yml up -d
-```
-
-This new option does not replace or modify the existing frontend image, backend image, `docker-compose.yml`, or desktop clients. The canonical role names are `-frontend`, `-backend`, and `-fullstack`; the existing `-server` backend image remains a compatibility alias for current deployments. Formal `vX.Y.Z` Docker tags must match the root `package.json` client version, while `latest` and `sha-*` remain development and traceability tags. See [DOCKER.md](DOCKER.md#optional-single-container-full-stack-deployment) for full-stack deployment, migration, backup, and rollback instructions.
-
-> If the package is private, run `docker login ghcr.io` first (use a [PAT](https://github.com/settings/tokens) with `read:packages` scope).
-
-See [DOCKER.md](DOCKER.md) for detailed instructions. The Docker setup handles CORS properly and allows you to configure any AI or WebDAV service URLs directly in the application.
-
-### 🖥️ Backend Server (Optional)
-
-The app works fully without a backend (pure frontend, localStorage). An optional Express + SQLite backend adds:
-- **Cross-device sync**: Share data between browsers/devices
-- **CORS-free proxying**: AI and WebDAV calls go through the server, avoiding browser CORS issues
-- **Token security**: API keys stored encrypted on server, never exposed to browser network tab
-
-#### Quick Start (Docker — recommended)
-```bash
-docker-compose up -d
-```
-Frontend on port 8080, backend on port 3000. Data is persisted in a Docker volume. This existing split deployment remains the recommended option when you need to version, operate, or scale the frontend and backend independently; the optional single-container alternative is documented in [DOCKER.md](DOCKER.md#optional-single-container-full-stack-deployment).
-
-To customize, create a `.env` file:
-```bash
-API_SECRET=your-secret
 ENCRYPTION_KEY=your-key
-BACKEND_IMAGE_TAG=0.7.8   # pin backend image version (default: latest)
-FRONTEND_IMAGE_TAG=0.7.8  # pin frontend image version (default: latest)
-```
-
-#### Backend only (docker run)
-```bash
-# Basic — no auth, port 3000
-docker run -d --name github-stars-backend \
-  -v github-stars-data:/app/data \
-  -p 3000:3000 \
-  ghcr.io/amintacccp/github-stars-manager-server:latest
-
-# With custom secret and encryption key
-docker run -d --name github-stars-backend \
-  -v github-stars-data:/app/data \
-  -p 3000:3000 \
-  -e API_SECRET="your-secret" \
-  -e ENCRYPTION_KEY="your-key" \
-  ghcr.io/amintacccp/github-stars-manager-server:latest
+IMAGE_TAG=0.7.8   # pin full-stack image (default: latest)
 ```
 
 #### Manual Setup
@@ -306,7 +274,7 @@ npm run dev
 #### Environment Variables
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `API_SECRET` | No | Bearer token for API authentication. If unset, auth is disabled. |
+| `API_SECRET` | Yes (production/Docker) | Bearer token for API authentication |
 | `ENCRYPTION_KEY` | No | AES-256 key for encrypting stored secrets. Auto-generated if unset. |
 | `PORT` | No | Server port (default: 3000) |
 
@@ -337,7 +305,7 @@ The app supports routing all outbound requests through a proxy:
 - **Protocol-level Testing** — Connection test performs actual protocol handshakes, not just TCP connect
 - **Encrypted Storage** — Proxy passwords are encrypted at rest with AES-256-GCM
 
-Configure in Settings → Network tab (available in Electron client or with backend server).
+Configure in Settings → Network tab (available when a backend server is connected).
 
 ![network](upload/network.png)
 
@@ -389,13 +357,13 @@ Vector Semantic Search uses [Cloudflare Vectorize](https://developers.cloudflare
 
 Let agents (Claude Code, Cursor, etc.) read your AI-enriched starred repositories — summaries, tags, categories — and search them via the [Model Context Protocol](https://modelcontextprotocol.io/).
 
-- **Streamable HTTP** (preferred): `POST /mcp` on the app origin (backend/Docker mode) or `http://127.0.0.1:3927/mcp` (desktop local mode)
-- **Legacy SSE**: `/mcp/sse` + `/mcp/sse/messages` (backend), `/sse` + `/messages` (desktop) — for older clients
+- **Streamable HTTP** (preferred): `POST /mcp` on the app origin (backend/Docker mode)
+- **Legacy SSE**: `/mcp/sse` + `/mcp/sse/messages` (backend/Docker)
 - **Bearer-token auth** with a stable token (`gsm_mcp_...`): generated once when enabled, kept across restarts, only changes when you reset it
 
 **Enable:** Settings → MCP Server → toggle on. The panel shows the endpoint URLs, the token, and a one-click copyable agent config (JSON) for both Streamable HTTP and SSE. No extra install needed.
 
-> 💡 The MCP token is **separate** from the backend `API_SECRET`. Pure frontend (no backend) hides the MCP settings page; it works with the desktop (Electron) client or a connected backend.
+> 💡 The MCP token is **separate** from the backend `API_SECRET`. Pure frontend (no backend) hides the MCP settings page.
 
 **Exposed tools (read-only):**
 
@@ -408,8 +376,6 @@ Let agents (Claude Code, Cursor, etc.) read your AI-enriched starred repositorie
 | `gsm_list_repos_by_category` | List repos in a category with pagination |
 | `gsm_stats` | Aggregate stats (languages, analysis, tags) |
 | `gsm_vector_search` | Semantic vector search — listed only when Vector Search is configured and enabled |
-
-**Desktop (Electron) notes:** binds loopback (`127.0.0.1`) only — local agents only; host/port adjustable in Settings (default port `3927`).
 
 ![MCP](upload/mcp.png)
 
@@ -443,7 +409,7 @@ The build output is a static site, so it deploys anywhere static hosting is supp
 - **Cloudflare Pages**: connect repo, build command `npm run build`, output `dist`
 - **Self-hosted**: serve the `dist` folder with any HTTP server (nginx, Caddy, etc.)
 
-For Docker deployment see the [Backend Server](#️-backend-server-optional) section above.
+For Docker deployment see [DOCKER.md](DOCKER.md).
 
 ## Who it's for
 
