@@ -144,6 +144,18 @@ docker run -d -p 8080:3000 -v github-stars-data:/app/data \
 - MCP Token 与 `API_SECRET` **相互独立**。
 - 纯前端（无后端）不显示 MCP 设置页。
 
+## HTTPS 页面访问局域网 HTTP 服务
+
+全栈容器对外可以是 HTTPS，但 **出站** WebDAV / Ollama / 局域网 AI 由容器内 Node 发起：
+
+| 浏览器页面 | 目标服务 | 是否可用 |
+|------------|----------|----------|
+| `https://…` | `https://` WebDAV / Embedding API | 可以（经 `/api/proxy/*`） |
+| `https://…` | `http://192.168.x.x` NAS 或 Ollama | **仅当 Docker 主机能访问该 IP** |
+| 远程 VPS 上的 `https://…` | 家里 `http://192.168.x.x` | 不可以 — 需暴露服务，或把应用部署在同一局域网 |
+
+浏览器不会直连这些 `http://` 地址（混合内容拦截）；应用一律走同源 `/api/proxy/webdav` 与 `/api/proxy/embedding`。
+
 ## 停止与清理
 
 ```bash
