@@ -157,6 +157,18 @@ With the full-stack image, MCP endpoints are on the same origin as the UI:
 - MCP token is **separate** from `API_SECRET`.
 - Pure frontend (no backend) does not show MCP settings.
 
+## HTTPS UI with HTTP LAN services
+
+The full-stack container terminates (or sits behind) HTTPS for the browser, but **outbound** WebDAV / Ollama / LAN AI calls are made by the Node process inside the container:
+
+| Browser page | Target service | Works? |
+|--------------|----------------|--------|
+| `https://…` | `https://` WebDAV / embedding API | Yes (via `/api/proxy/*`) |
+| `https://…` | `http://192.168.x.x` NAS or Ollama | Yes **only if the Docker host can reach that IP** |
+| `https://…` on a remote VPS | Home-LAN `http://192.168.x.x` | No — expose the service or run the app on the LAN |
+
+Browsers never call those `http://` URLs directly (mixed content); the app always uses same-origin `/api/proxy/webdav` and `/api/proxy/embedding`.
+
 ## Stopping
 
 ```bash

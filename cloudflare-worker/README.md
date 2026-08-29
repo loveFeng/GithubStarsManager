@@ -1,6 +1,6 @@
 # GitHub Stars Vectorize Worker
 
-极简 Cloudflare Worker，作为 Cloudflare Vectorize 的代理。前端负责 Embedding 生成，Worker 只负责向量的存/查/删。
+极简 Cloudflare Worker，作为 Cloudflare Vectorize 的代理。应用侧负责 Embedding 生成（已连接后端时经 `/api/proxy/embedding` 转发，避免浏览器 CORS / HTTPS→HTTP 混合内容），Worker 只负责向量的存/查/删。
 
 ## 前置条件
 

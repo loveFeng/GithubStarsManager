@@ -47,6 +47,24 @@ const DEFAULT_DIMENSIONS: Record<EmbeddingApiType, number> = {
   ollama: 768,
 };
 
+const DEFAULT_BASE_URLS: Record<EmbeddingApiType, string> = {
+  openai: 'https://api.openai.com',
+  'openai-compatible': '',
+  siliconflow: 'https://api.siliconflow.cn',
+  gemini: 'https://generativelanguage.googleapis.com',
+  cohere: 'https://api.cohere.com',
+  ollama: 'http://localhost:11434',
+};
+
+const DEFAULT_MODELS: Record<EmbeddingApiType, string> = {
+  openai: 'text-embedding-3-small',
+  'openai-compatible': '',
+  siliconflow: 'BAAI/bge-large-zh-v1.5',
+  gemini: 'text-embedding-004',
+  cohere: 'embed-english-v3.0',
+  ollama: 'nomic-embed-text',
+};
+
 export const VectorSearchSettings: React.FC<VectorSearchSettingsProps> = ({ t }) => {
   const {
     embeddingConfigs, activeEmbeddingConfig, vectorSearchConfig, vectorSearchStatus,
@@ -130,13 +148,48 @@ export const VectorSearchSettings: React.FC<VectorSearchSettingsProps> = ({ t })
     setTimeout(() => setWorkerSaved(false), 2000);
   };
   const draft = () => ({ apiType: formApiType, baseUrl: formBaseUrl, apiKey: formApiKey, model: formModel, dimensions: formDimensions, workerUrl: formWorkerUrl, authToken: formAuthToken, indexMode: formIndexMode, readmeMaxChars: formReadmeMaxChars });
-  const handleTestEmbedding = () => testEmbedding(draft());
-  const handleTestWorker = () => testWorker({ workerUrl: formWorkerUrl, authToken: formAuthToken });
+  const handleTestEmbedding = () => {
+    if (!formBaseUrl.trim() || !formModel.trim()) {
+      toast(
+        t('请先填写 API 地址和模型名称', 'Please fill in API URL and model name first'),
+        'error',
+      );
+      return;
+    }
+    if (formApiType !== 'ollama' && !formApiKey.trim()) {
+      toast(t('请先填写 API Key', 'Please fill in API Key first'), 'error');
+      return;
+    }
+    void testEmbedding(draft());
+  };
+  const handleTestWorker = () => {
+    if (!formWorkerUrl.trim()) {
+      toast(t('请先填写 Worker 地址', 'Please fill in Worker URL first'), 'error');
+      return;
+    }
+    void testWorker({ workerUrl: formWorkerUrl, authToken: formAuthToken });
+  };
   const handleRebuildIndex = () => rebuildIndex(draft());
   const handleIncrementalIndex = () => incrementalIndex(draft());
   const handleAbortIndexing = () => abortIndexing();
   const { isIndexing, phase, phaseDone, phaseTotal, result: indexResult } = vectorIndexingState;
   const isConfigComplete = !!(activeConfig && formBaseUrl && formModel && (formApiType === 'ollama' || formApiKey) && formWorkerUrl && formAuthToken);
+
+  const applyApiTypeDefaults = (type: EmbeddingApiType) => {
+    const dimensions = DEFAULT_DIMENSIONS[type];
+    const previousDefaults = DEFAULT_BASE_URLS[formApiType];
+    const previousModelDefaults = DEFAULT_MODELS[formApiType];
+    setFormApiType(type);
+    setFormDimensions(dimensions);
+    setFormDimensionsInput(String(dimensions));
+    // Prefill when empty or still on the previous type's default (placeholders look filled).
+    if (!formBaseUrl.trim() || formBaseUrl.trim() === previousDefaults) {
+      setFormBaseUrl(DEFAULT_BASE_URLS[type]);
+    }
+    if (!formModel.trim() || formModel.trim() === previousModelDefaults) {
+      setFormModel(DEFAULT_MODELS[type]);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -191,12 +244,8 @@ export const VectorSearchSettings: React.FC<VectorSearchSettingsProps> = ({ t })
             {EMBEDDING_API_TYPES.map((type) => (
               <Button
                 key={type.value}
-                onClick={() => {
-                  const dimensions = DEFAULT_DIMENSIONS[type.value];
-                  setFormApiType(type.value);
-                  setFormDimensions(dimensions);
-                  setFormDimensionsInput(String(dimensions));
-                }}
+                type="button"
+                onClick={() => applyApiTypeDefaults(type.value)}
                 aria-pressed={formApiType === type.value}
                 className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
                   formApiType === type.value
@@ -332,14 +381,16 @@ export const VectorSearchSettings: React.FC<VectorSearchSettingsProps> = ({ t })
         {/* Test & Save */}
         <div className="flex gap-2">
           <Button
+            type="button"
             onClick={handleTestEmbedding}
-            disabled={testingEmbedding || !formBaseUrl || !formModel}
+            disabled={testingEmbedding}
             className="flex items-center gap-2 px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {testingEmbedding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
             {t('测试 Embedding 连接', 'Test Embedding Connection')}
           </Button>
           <Button
+            type="button"
             onClick={handleSaveEmbeddingConfig}
             variant={embeddingSaved ? 'default' : 'outline'}
             className="h-9 px-4 text-sm"
@@ -412,8 +463,9 @@ export const VectorSearchSettings: React.FC<VectorSearchSettingsProps> = ({ t })
         {/* Test */}
         <div className="flex gap-2">
           <Button
+            type="button"
             onClick={handleTestWorker}
-            disabled={testingWorker || !formWorkerUrl}
+            disabled={testingWorker}
             className="flex items-center gap-2 px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {testingWorker ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}

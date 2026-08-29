@@ -3,6 +3,7 @@ import { getDb } from '../db/connection.js';
 import { encrypt, decrypt } from '../services/crypto.js';
 import { config } from '../config.js';
 import { proxyRequest, ProxyConfig, validateUrl, isPrivateOrLoopback } from '../services/proxyService.js';
+import { buildEmbeddingRequest, parseEmbeddingResponse } from '../services/embeddingRequest.js';
 import { logger } from '../services/logger.js';
 
 function getProxyConfig(): ProxyConfig | null {
@@ -349,11 +350,23 @@ router.post('/api/proxy/ai', async (req, res) => {
 });
 
 // POST /api/proxy/webdav
+// Prefer SQLite configId; if missing, accept inline { url, username, password }.
+// Inline path is required when the SPA has not synced yet, and so https:// UI can
+// reach http:// NAS via same-origin /api (browser mixed-content blocks direct calls).
 router.post('/api/proxy/webdav', async (req, res) => {
   try {
     const db = getDb();
-    const { configId, method, path, body: requestBody, headers: extraHeaders, responseType } = req.body as {
-      configId: string;
+    const {
+      configId,
+      config: inlineConfig,
+      method,
+      path,
+      body: requestBody,
+      headers: extraHeaders,
+      responseType,
+    } = req.body as {
+      configId?: string;
+      config?: { url: string; username: string; password: string };
       method: string;
       path: string;
       body?: string;
@@ -361,23 +374,49 @@ router.post('/api/proxy/webdav', async (req, res) => {
       responseType?: 'json' | 'text';
     };
 
-    if (!configId) {
-      res.status(400).json({ error: 'configId required', code: 'CONFIG_ID_REQUIRED' });
+    if (!method || typeof path !== 'string') {
+      res.status(400).json({ error: 'method and path are required', code: 'INVALID_REQUEST' });
       return;
     }
 
-    const webdavConfig = db.prepare('SELECT * FROM webdav_configs WHERE id = ?').get(configId) as Record<string, unknown> | undefined;
-    if (!webdavConfig) {
-      res.status(404).json({ error: 'WebDAV config not found', code: 'WEBDAV_CONFIG_NOT_FOUND' });
+    let username: string | undefined;
+    let password: string | undefined;
+    let baseUrl: string | undefined;
+
+    if (configId) {
+      const webdavConfig = db.prepare('SELECT * FROM webdav_configs WHERE id = ?').get(configId) as Record<string, unknown> | undefined;
+      if (webdavConfig) {
+        password = decrypt(webdavConfig.password_encrypted as string, config.encryptionKey);
+        username = webdavConfig.username as string;
+        baseUrl = webdavConfig.url as string;
+      }
+    }
+
+    if ((!baseUrl || !username || typeof password !== 'string') && inlineConfig) {
+      username = inlineConfig.username;
+      password = inlineConfig.password;
+      baseUrl = inlineConfig.url;
+    }
+
+    if (!baseUrl || !username || typeof password !== 'string') {
+      res.status(configId ? 404 : 400).json({
+        error: configId ? 'WebDAV config not found' : 'configId or config required',
+        code: configId ? 'WEBDAV_CONFIG_NOT_FOUND' : 'CONFIG_ID_REQUIRED',
+      });
       return;
     }
 
-    const password = decrypt(webdavConfig.password_encrypted as string, config.encryptionKey);
-    const username = webdavConfig.username as string;
-    const baseUrl = webdavConfig.url as string;
-
-    const targetUrl = `${baseUrl}${path}`;
+    const normalizedBase = baseUrl.replace(/\/$/, '');
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+    const targetUrl = `${normalizedBase}${normalizedPath}`;
     const credentials = Buffer.from(`${username}:${password}`).toString('base64');
+
+    try {
+      const parsed = new URL(targetUrl);
+      if (parsed.protocol !== 'https:' && !isPrivateOrLoopback(parsed.hostname)) {
+        logger.warn('proxy.webdav', `WebDAV credentials transmitted over ${parsed.protocol} (not HTTPS). Prefer HTTPS when the NAS supports it.`);
+      }
+    } catch { /* validateUrl will reject later */ }
 
     const safeHeaders = { ...(extraHeaders || {}) };
     for (const key of Object.keys(safeHeaders)) {
@@ -410,6 +449,7 @@ router.post('/api/proxy/webdav', async (req, res) => {
       proxyConfig,
       preserveRawResponse: wantsText,
       // 用户自有配置来源的 WebDAV 地址：放行回环/私有网段（局域网 NAS 等）
+      // 含 http:// — 浏览器在 https 页面下不能直连，必须由后端代发。
       allowPrivate: true,
     });
 
@@ -424,7 +464,133 @@ router.post('/api/proxy/webdav', async (req, res) => {
     res.status(result.status).json(result.data);
   } catch (err) {
     logger.errorFromError('proxy.webdav', 'WebDAV proxy error', err);
+    const message = err instanceof Error ? err.message : String(err);
+    // Surface reachability failures clearly (common when Docker host cannot see LAN HTTP NAS).
+    if (/ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EHOSTUNREACH|ECONNRESET|certificate|SSL/i.test(message)) {
+      res.status(502).json({
+        error: `WebDAV upstream unreachable: ${message}`,
+        code: 'WEBDAV_UPSTREAM_UNREACHABLE',
+      });
+      return;
+    }
     res.status(500).json({ error: 'WebDAV proxy failed', code: 'WEBDAV_PROXY_FAILED' });
+  }
+});
+
+// POST /api/proxy/embedding
+// Browser cannot call most embedding vendors (CORS) or http:// Ollama from an https:// UI.
+// Accepts { configId } (SQLite) or inline { config: { apiType, baseUrl, apiKey, model }, texts, purpose }.
+router.post('/api/proxy/embedding', async (req, res) => {
+  try {
+    const db = getDb();
+    const {
+      configId,
+      config: inlineConfig,
+      texts,
+      purpose,
+    } = req.body as {
+      configId?: string;
+      config?: { apiType?: string; baseUrl: string; apiKey?: string; model: string };
+      texts?: string[];
+      purpose?: 'document' | 'query';
+    };
+
+    if (!Array.isArray(texts) || texts.length === 0 || texts.some((t) => typeof t !== 'string')) {
+      res.status(400).json({ error: 'texts must be a non-empty string array', code: 'INVALID_REQUEST' });
+      return;
+    }
+
+    let apiType: string;
+    let baseUrl: string;
+    let apiKey: string;
+    let model: string;
+
+    if (configId) {
+      const row = db.prepare('SELECT * FROM embedding_configs WHERE id = ?').get(configId) as Record<string, unknown> | undefined;
+      if (row) {
+        apiType = String(row.api_type || 'openai');
+        baseUrl = String(row.base_url || '');
+        model = String(row.model || '');
+        try {
+          apiKey = row.api_key_encrypted
+            ? decrypt(row.api_key_encrypted as string, config.encryptionKey)
+            : '';
+        } catch {
+          res.status(500).json({ error: 'Failed to decrypt embedding API key', code: 'EMBEDDING_KEY_DECRYPT_FAILED' });
+          return;
+        }
+      } else if (inlineConfig) {
+        apiType = inlineConfig.apiType || 'openai';
+        baseUrl = inlineConfig.baseUrl;
+        apiKey = inlineConfig.apiKey || '';
+        model = inlineConfig.model;
+      } else {
+        res.status(404).json({ error: 'Embedding config not found', code: 'EMBEDDING_CONFIG_NOT_FOUND' });
+        return;
+      }
+    } else if (inlineConfig) {
+      apiType = inlineConfig.apiType || 'openai';
+      baseUrl = inlineConfig.baseUrl;
+      apiKey = inlineConfig.apiKey || '';
+      model = inlineConfig.model;
+    } else {
+      res.status(400).json({ error: 'configId or config required', code: 'CONFIG_ID_REQUIRED' });
+      return;
+    }
+
+    if (!model) {
+      res.status(400).json({ error: 'model is required', code: 'INVALID_REQUEST' });
+      return;
+    }
+
+    let built;
+    try {
+      built = buildEmbeddingRequest(
+        { apiType, baseUrl, apiKey, model },
+        texts,
+        purpose === 'query' ? 'query' : 'document',
+      );
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid embedding config', code: 'INVALID_REQUEST' });
+      return;
+    }
+
+    const proxyConfig = getProxyConfig();
+    const result = await proxyRequest({
+      url: built.url,
+      method: 'POST',
+      headers: built.headers,
+      body: built.body,
+      timeout: 60000,
+      proxyConfig,
+      allowPrivate: built.allowPrivate,
+    });
+
+    if (result.status < 200 || result.status >= 300) {
+      const errText = typeof result.data === 'string' ? result.data : JSON.stringify(result.data);
+      res.status(result.status).json({
+        error: `Embedding API error ${result.status}: ${errText.slice(0, 500)}`,
+        code: 'EMBEDDING_UPSTREAM_ERROR',
+      });
+      return;
+    }
+
+    const data = (typeof result.data === 'object' && result.data !== null
+      ? result.data
+      : {}) as Record<string, unknown>;
+    const embeddings = parseEmbeddingResponse(apiType, data);
+    res.json({ embeddings });
+  } catch (err) {
+    logger.errorFromError('proxy.embedding', 'Embedding proxy error', err);
+    const message = err instanceof Error ? err.message : String(err);
+    if (/ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EHOSTUNREACH|ECONNRESET/i.test(message)) {
+      res.status(502).json({
+        error: `Embedding upstream unreachable: ${message}`,
+        code: 'EMBEDDING_UPSTREAM_UNREACHABLE',
+      });
+      return;
+    }
+    res.status(500).json({ error: 'Embedding proxy failed', code: 'EMBEDDING_PROXY_FAILED' });
   }
 });
 

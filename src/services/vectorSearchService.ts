@@ -7,6 +7,7 @@
 
 import type { EmbeddingConfig, VectorSearchConfig, Repository, VectorIndexMode } from '../types';
 import { NO_LICENSE_SENTINEL, normalizeLicense } from '../utils/licenseFilter';
+import { backend } from './backendAdapter';
 
 // ============================================================
 // EmbeddingClient
@@ -20,6 +21,11 @@ export class EmbeddingClient {
    * @param purpose 'document' 用于索引, 'query' 用于搜索查询
    */
   async embed(texts: string[], purpose: 'document' | 'query' = 'document', signal?: AbortSignal): Promise<number[][]> {
+    // Prefer backend proxy: browsers block most vendor CORS and https→http Ollama mixed content.
+    if (backend.isAvailable && !signal?.aborted) {
+      return backend.proxyEmbedding(this.config, texts, purpose);
+    }
+
     switch (this.config.apiType) {
       case 'openai':
       case 'openai-compatible':

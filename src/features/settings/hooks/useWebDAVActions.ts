@@ -4,6 +4,8 @@ import type { WebDAVConfig } from '../../../types';
 import { useAppStore } from '../../../store/useAppStore';
 import { useDialog } from '../../../hooks/useDialog';
 import { WebDAVService } from '../../../services/webdavService';
+import { backend } from '../../../services/backendAdapter';
+import { forceSyncToBackend } from '../../../services/autoSync';
 
 interface UseWebDAVActionsOptions {
   t: (zh: string, en: string) => string;
@@ -59,12 +61,27 @@ export const useWebDAVActions = ({ t }: UseWebDAVActionsOptions): WebDAVActions 
     } else {
       addWebDAVConfig(config);
     }
+
+    // Push to SQLite promptly so /api/proxy/webdav can resolve configId (https UI + http NAS).
+    if (backend.isAvailable) {
+      void forceSyncToBackend().catch(() => {
+        // Inline proxy fallback still works if sync lags.
+      });
+    }
+
     return true;
   }, [addWebDAVConfig, t, toast, updateWebDAVConfig, webdavConfigs]);
 
   const test = useCallback(async (config: WebDAVConfig) => {
     setTestingId(config.id);
     try {
+      if (backend.isAvailable) {
+        try {
+          await backend.syncWebDAVConfigs(useAppStore.getState().webdavConfigs);
+        } catch {
+          // Continue — proxy accepts inline credentials when configId is missing.
+        }
+      }
       const isConnected = await new WebDAVService(config).testConnection();
       toast(
         isConnected

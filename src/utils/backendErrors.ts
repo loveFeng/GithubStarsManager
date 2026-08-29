@@ -10,6 +10,18 @@ const ERROR_MESSAGES: Record<string, { zh: string; en: string }> = {
   AI_PROXY_FAILED: { zh: 'AI 代理请求失败', en: 'AI proxy failed' },
   WEBDAV_CONFIG_NOT_FOUND: { zh: 'WebDAV 配置未找到', en: 'WebDAV config not found' },
   WEBDAV_PROXY_FAILED: { zh: 'WebDAV 代理请求失败', en: 'WebDAV proxy failed' },
+  WEBDAV_UPSTREAM_UNREACHABLE: {
+    zh: '无法连接 WebDAV 服务器。若页面是 HTTPS、WebDAV 是局域网 HTTP，请确认 Docker/后端所在主机能访问该地址（不是浏览器直连）。',
+    en: 'WebDAV server unreachable. If the UI is HTTPS and WebDAV is LAN HTTP, ensure the Docker/backend host can reach that address (browser cannot call it directly).',
+  },
+  EMBEDDING_CONFIG_NOT_FOUND: { zh: 'Embedding 配置未找到', en: 'Embedding config not found' },
+  EMBEDDING_PROXY_FAILED: { zh: 'Embedding 代理请求失败', en: 'Embedding proxy failed' },
+  EMBEDDING_UPSTREAM_ERROR: { zh: 'Embedding API 返回错误', en: 'Embedding API returned an error' },
+  EMBEDDING_UPSTREAM_UNREACHABLE: {
+    zh: '无法连接 Embedding 服务。请确认后端能访问该 API（HTTPS 页面不能浏览器直连 HTTP Ollama）。',
+    en: 'Embedding service unreachable. Ensure the backend can reach the API (HTTPS pages cannot call HTTP Ollama from the browser).',
+  },
+  EMBEDDING_KEY_DECRYPT_FAILED: { zh: '解密 Embedding API Key 失败', en: 'Failed to decrypt embedding API key' },
   GATEWAY_TIMEOUT: { zh: '网关超时', en: 'Gateway Timeout' },
   BAD_GATEWAY: { zh: '网关错误', en: 'Bad Gateway' },
   // Repositories

@@ -37,7 +37,43 @@ export class WebDAVService {
     headers?: Record<string, string>,
   ): Promise<Response> {
     this.requireBackendProxy();
-    return backend.proxyWebDAV(this.config.id, method, path, body, headers, 'text');
+    const password = this.config.password;
+    const canInline =
+      Boolean(this.config.url)
+      && Boolean(this.config.username)
+      && typeof password === 'string'
+      && password.length > 0
+      && password !== '***';
+
+    const response = await backend.proxyWebDAV(
+      this.config.id,
+      method,
+      path,
+      body,
+      headers,
+      'text',
+      canInline
+        ? {
+            url: this.config.url,
+            username: this.config.username,
+            password,
+          }
+        : undefined,
+    );
+
+    // Surface structured proxy failures (e.g. Docker host cannot reach LAN http:// NAS).
+    if (response.status >= 500) {
+      let message: string | undefined;
+      try {
+        const payload = await response.clone().json() as { error?: string };
+        if (typeof payload?.error === 'string' && payload.error) message = payload.error;
+      } catch {
+        // non-JSON body — leave to callers
+      }
+      if (message) throw new Error(message);
+    }
+
+    return response;
   }
 
   private compressData(content: string): string {

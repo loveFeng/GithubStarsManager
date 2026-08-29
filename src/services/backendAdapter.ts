@@ -523,6 +523,40 @@ class BackendAdapter {
     return this.proxyAIRequestWithConfig(aiConfig, body, signal);
   }
 
+  // === Embedding Proxy ===
+
+  async proxyEmbedding(
+    config: { id?: string; apiType?: string; baseUrl: string; apiKey?: string; model: string },
+    texts: string[],
+    purpose: 'document' | 'query' = 'document',
+  ): Promise<number[][]> {
+    if (!this._backendUrl) throw new Error('Backend not available');
+
+    const payload: Record<string, unknown> = {
+      texts,
+      purpose,
+      config: {
+        apiType: config.apiType,
+        baseUrl: config.baseUrl,
+        apiKey: config.apiKey || '',
+        model: config.model,
+      },
+    };
+    if (config.id) payload.configId = config.id;
+
+    const res = await this.fetchWithTimeout(`${this._backendUrl}/proxy/embedding`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify(payload),
+    }, 60000);
+    if (!res.ok) await this.throwTranslatedError(res, 'Embedding proxy error');
+    const data = await res.json() as { embeddings?: number[][] };
+    if (!Array.isArray(data.embeddings)) {
+      throw new Error('Invalid embedding proxy response');
+    }
+    return data.embeddings;
+  }
+
   // === WebDAV Proxy ===
 
   async proxyWebDAV(
@@ -532,13 +566,32 @@ class BackendAdapter {
     body?: string,
     headers?: Record<string, string>,
     responseType: 'json' | 'text' = 'text',
+    inlineConfig?: { url: string; username: string; password: string },
   ): Promise<Response> {
     if (!this._backendUrl) throw new Error('Backend not available');
+
+    // Always include inline credentials as fallback when the SQLite row is missing
+    // (sync lag) so https:// pages can still proxy http:// NAS targets.
+    const payload: Record<string, unknown> = {
+      configId: configId || undefined,
+      method,
+      path,
+      body,
+      headers,
+      responseType,
+    };
+    if (inlineConfig?.url && inlineConfig.username && typeof inlineConfig.password === 'string') {
+      payload.config = {
+        url: inlineConfig.url,
+        username: inlineConfig.username,
+        password: inlineConfig.password,
+      };
+    }
 
     return this.fetchWithTimeout(`${this._backendUrl}/proxy/webdav`, {
       method: 'POST',
       headers: this.getAuthHeaders(),
-      body: JSON.stringify({ configId, method, path, body, headers, responseType }),
+      body: JSON.stringify(payload),
     });
   }
 

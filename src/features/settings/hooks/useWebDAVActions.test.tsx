@@ -16,6 +16,12 @@ vi.mock('../../../services/webdavService', () => ({
     static validateConfig = mocks.validateConfig;
   },
 }));
+vi.mock('../../../services/backendAdapter', () => ({
+  backend: { isAvailable: false, syncWebDAVConfigs: vi.fn() },
+}));
+vi.mock('../../../services/autoSync', () => ({
+  forceSyncToBackend: vi.fn().mockResolvedValue(undefined),
+}));
 
 const storeState = {
   webdavConfigs: [],

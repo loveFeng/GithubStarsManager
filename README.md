@@ -326,7 +326,7 @@ Vector Semantic Search uses [Cloudflare Vectorize](https://developers.cloudflare
 ![vectorize](upload/vectorize.png)
 
 **How it works:**
-1. Frontend generates embeddings via your configured provider (OpenAI, Gemini, Cohere, Ollama, SiliconFlow, or any OpenAI-compatible API)
+1. The app generates embeddings via your configured provider (OpenAI, Gemini, Cohere, Ollama, SiliconFlow, or any OpenAI-compatible API). With the backend connected (Docker full-stack or `npm run dev:server`), calls go through `/api/proxy/embedding` so the browser avoids vendor CORS and can use `http://` Ollama from an `https://` UI.
 2. A lightweight Cloudflare Worker acts as a pure Vectorize proxy (store / query / delete)
 3. On search, the query is embedded and matched against the vector index; results are optionally reranked by your AI service
 4. When disabled or on failure, the app automatically falls back to keyword-based AI search
@@ -396,6 +396,8 @@ Back up and sync your data via any standard WebDAV service:
 - **Any standard WebDAV server**
 
 Steps: open Settings, add a WebDAV config, enter the server URL, username, password, and path, test the connection, then enable auto-backup.
+
+WebDAV always goes through the backend proxy (`/api/proxy/webdav`). That is required when the UI is served over HTTPS but your NAS uses `http://` (browsers block mixed content). The **Docker/backend host** must be able to reach the WebDAV URL — a public VPS cannot dial a home-LAN `192.168.x.x` address unless you expose that NAS or run the app on the same network.
 
 ## 🚀 Deployment
 

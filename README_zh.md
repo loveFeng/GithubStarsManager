@@ -301,7 +301,7 @@ npm run build
 ![vectorize](upload/vectorize.png)
 
 **工作原理：**
-1. 前端通过用户配置的 Embedding 服务商（OpenAI、Gemini、Cohere、Ollama、硅基流动或任何兼容 OpenAI 的 API）生成向量
+1. 应用通过你配置的 Embedding 服务商（OpenAI、Gemini、Cohere、Ollama、硅基流动或任何兼容 OpenAI 的 API）生成向量。已连接后端时（Docker 全栈或 `npm run dev:server`），请求经 `/api/proxy/embedding` 转发，避免浏览器 CORS，并支持在 `https://` 页面下使用 `http://` Ollama。
 2. 轻量级 Cloudflare Worker 作为纯 Vectorize 代理（存/查/删）
 3. 搜索时，将查询文本嵌入为向量并与索引匹配；可选由 AI 服务进行二次排序
 4. 关闭向量搜索或搜索失败时，自动回退到基于关键词的 AI 搜索
@@ -374,6 +374,8 @@ npm run build
 2. 输入服务器URL、用户名、密码和路径
 3. 测试连接
 4. 启用自动备份
+
+WebDAV 一律经后端代理（`/api/proxy/webdav`）。当页面是 HTTPS、NAS 使用 `http://` 时必须如此（浏览器会拦截混合内容）。**跑 Docker/后端的主机**必须能访问该 WebDAV 地址——公网 VPS 通常打不到家里的 `192.168.x.x`，除非把 NAS 暴露出去，或把应用部署在同一局域网。
 
 ## 🚀 部署
 

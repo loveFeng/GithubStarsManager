@@ -9,6 +9,7 @@ vi.mock('../../src/db/connection.js', () => ({
     prepare: (sql: string) => ({
       get: (keyOrId: string) => {
         if (sql.includes('FROM webdav_configs')) {
+          if (keyOrId === 'missing-id') return undefined;
           return {
             id: keyOrId,
             username: 'alice',
@@ -94,5 +95,57 @@ describe('WebDAV proxy route', () => {
     expect(options.headers.AuthorIzation).toBeUndefined();
     expect(options.headers['Content-Type']).toBe('application/json');
     expect(options.headers.Authorization).toBe(`Basic ${Buffer.from('alice:secret').toString('base64')}`);
+  });
+
+  it('falls back to inline http:// config when configId is missing from SQLite', async () => {
+    proxyRequestMock.mockResolvedValue({ status: 207, data: '<xml/>', headers: { 'content-type': 'application/xml' } });
+    const app = createTestApp();
+
+    const res = await request(app)
+      .post('/api/proxy/webdav')
+      .send({
+        configId: 'missing-id',
+        config: {
+          url: 'http://192.168.1.10:5005',
+          username: 'nas',
+          password: 'pass',
+        },
+        method: 'PROPFIND',
+        path: '/backup/',
+        body: '<propfind/>',
+        headers: { Depth: '1' },
+      })
+      .expect(207);
+
+    expect(res.text).toBe('<xml/>');
+    expect(proxyRequestMock).toHaveBeenCalledOnce();
+    const options = proxyRequestMock.mock.calls[0][0];
+    expect(options.url).toBe('http://192.168.1.10:5005/backup/');
+    expect(options.allowPrivate).toBe(true);
+    expect(options.headers.Authorization).toBe(`Basic ${Buffer.from('nas:pass').toString('base64')}`);
+  });
+
+  it('uses inline-only http WebDAV config without configId', async () => {
+    proxyRequestMock.mockResolvedValue({ status: 201, data: 'created', headers: { 'content-type': 'text/plain' } });
+    const app = createTestApp();
+
+    await request(app)
+      .post('/api/proxy/webdav')
+      .send({
+        config: {
+          url: 'http://10.0.0.5/dav',
+          username: 'u',
+          password: 'p',
+        },
+        method: 'PUT',
+        path: 'backup.json',
+        body: '{}',
+        responseType: 'text',
+      })
+      .expect(201);
+
+    const options = proxyRequestMock.mock.calls[0][0];
+    expect(options.url).toBe('http://10.0.0.5/dav/backup.json');
+    expect(options.allowPrivate).toBe(true);
   });
 });
