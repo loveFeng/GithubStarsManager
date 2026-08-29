@@ -359,7 +359,6 @@ function showHelp() {
   console.log('  npm run update-version -- "优化性能" --url=https://example.com/download\n');
   console.log('注意:');
   console.log('  • package-lock.json 必须保留字面版本以保证 npm 锁定安装，但由脚本从根 package.json 自动同步。');
-  console.log('  • electron/package.json 不维护独立应用版本；Electron Builder 使用根 package.json。');
   console.log('  • 版本同步期间会持有仓库独占锁，防止并发发布互相覆盖。');
   console.log('  • --url= 会被视为无效参数，避免静默回退到默认下载链接。');
 }

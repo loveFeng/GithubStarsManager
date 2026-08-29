@@ -133,9 +133,8 @@ sortOrder: state.searchFilters.sortOrder,
 discoveryChannels: state.discoveryChannels,
 selectedDiscoveryChannel: state.selectedDiscoveryChannel,
 // discoveryRepos 不持久化，它是极其庞大的 JSON 对象。
-// 在 Electron 41/v8/macOS 上的 IDB partialize 阶段，
-// 由于频繁序列化这个可能达数MB的大对象，会触发底层 JIT CHECK assertion failed (brk 0) 导致崩溃。
-// 这里的会话级运行时数据都取消持久化：
+// 频繁序列化数 MB 级对象会拖慢 IDB partialize，并可能在部分浏览器内核上触发崩溃。
+// 会话级运行时数据都不持久化：
 // discoveryRepos
 // discoveryLastRefresh
 // discoveryTotalCount

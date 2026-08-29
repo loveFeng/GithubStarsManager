@@ -57,7 +57,7 @@ through the Store, not direct imports.
 | **Store**        |  ✗   |  ✗   |    ✗       |   ✗     |  ✓   |
 
 ¹ Views must not import business services directly. The one carve-out is *infrastructure* that is
-not business orchestration — `logger`, `isElectron`/`electronProxy`, `indexedDbStorage` — which
+not business orchestration — `logger`, `indexedDbStorage` — which
 remain importable from anywhere because they are tools, not controllers. `updateService` /
 `translateService` are business services and are *not* infrastructure.
 
@@ -105,15 +105,13 @@ the same PR.
 ### The v2 three persistence contracts
 
 These three facts are load-bearing and must not drift; they are the "data does not get lost"
-guarantee for the v2 backend/electron split.
-
-> **Deployment note (2026):** Electron desktop packaging has been removed; production deployment is web-only (Docker full-stack single image or static hosting). Historical Electron references below remain for in-app code paths.
+guarantee for the v2 backend + web client persistence model.
 
 | # | Contract | Where | Why |
 |---|----------|-------|-----|
 | 1 | `discoveryRepos` is **never persisted** | `partialize` omits it (the comment in `src/store/persistence/options.ts` next to the discovery block + the omitted key) | It is an extremely large JSON object. Re-fetching on load is cheaper than rehydrating megabytes from IndexedDB. Migrate must never add it to `partialize`. |
 | 2 | `backendApiSecret` is stored in **three** places, by design | (a) `sessionStorage` key `github-stars-manager-backend-secret` via `readSessionBackendSecret`/`writeSessionBackendSecret`; (b) `localStorage` auth mirror `github-stars-manager-auth` via `writeAuthMirror`; (c) persisted in the IndexedDB snapshot via `partialize` | The session copy is the live source the UI reads first; the localStorage mirror survives a tab close to restore auth on reopen; the IndexedDB copy is the durable fallback when browsers block the other two. `migrate` v9→v10 initializes it to `null` for old snapshots. Do not collapse this into one location — each covers a failure mode the others don't. |
-| 3 | Proxy and RPC download are **asymmetric** | `electronProxy` calls go through `window.electronAPI` (IPC to main process) for proxy set/get/test; `rpcDownloadService` calls go through HTTP `fetch` to either `http://host:port/jsonrpc` (direct) or `${backendBase}/settings/rpc-download/test` (backend-proxied) | The proxy is an Electron-only capability with no backend equivalent; RPC download works in both SPA and Electron via HTTP. They are not interchangeable. Do not route proxy calls through `fetch` or RPC calls through IPC to "unify" them — that removes a capability. |
+| 3 | Proxy and RPC download are **backend HTTP** | Proxy settings and RPC download tests go through the Express backend (`backendAdapter` / `rpcDownloadService` → `/api/...`). There is no desktop IPC path. | Keep proxy and RPC as HTTP-backed settings services; do not invent a separate client-only transport. |
 
 ### Infrastructure vs business service — the import carve-out
 
@@ -122,11 +120,11 @@ guarantee for the v2 backend/electron split.
 `autoSync`, `webdavService`, `backendAdapter`, `rpcDownloadService`, `githubApiFactory`.
 
 These remain importable from components because they are **tools, not orchestration**:
-`logger`, `electronProxy` (`isElectron`), `indexedDbStorage`, `mcpElectronBridge`,
-`aiRequestLimiter`, `discoveryAnalysisStorage`.
+`logger`, `indexedDbStorage`, `aiRequestLimiter`,
+`discoveryAnalysisStorage`.
 
 > Rule of thumb: if the module owns an async call to a remote system or mutates Store state, it is
-> a business service and belongs behind a hook. If it is a sync utility (`logger`, `isElectron`,
+> a business service and belongs behind a hook. If it is a sync utility (`logger`,
 > `indexedDBStorage`), it is infrastructure and may be imported anywhere.
 
 This PR's ban list is the ten services above. Two further services — `updateService` and

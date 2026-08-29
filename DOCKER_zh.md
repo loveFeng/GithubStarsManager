@@ -1,8 +1,6 @@
 # Docker 部署指南
 
-GithubStarsManager 推荐使用 **全栈单镜像** Docker 部署：一个 Node/Express 进程在同一来源下提供网页、`/api` 与 MCP 端点。旧版前后端分离 Compose 文件仅用于迁移，见 [已弃用的分离部署](#已弃用的分离部署)。
-
-Electron 桌面客户端已移除；请通过 Web（Docker 或静态托管）使用本应用。
+GithubStarsManager 推荐使用 **全栈单镜像** Docker 部署：一个 Node/Express 进程在同一来源下提供网页、`/api` 与 MCP 端点。
 
 ## 准备条件
 
@@ -114,29 +112,20 @@ docker run -d -p 8080:3000 -v github-stars-data:/app/data \
   -e API_SECRET="your-secret" github-stars-manager-fullstack:local
 ```
 
-## 从分离部署（前端 + 后端）迁移
+## 从旧版分离部署（前端 + 后端）迁移
 
-若此前使用 `docker-compose.split.yml`（或旧版双服务 `docker-compose.yml`）：
+若此前分别运行 nginx 前端与 Node 后端，并使用 `backend-data` 数据卷：
 
-1. 停止所有写入，**不要**加 `-v`：`docker compose -f docker-compose.split.yml down`
+1. 停止旧栈，**不要**加 `-v`（`docker compose down`）。
 2. 备份现有 `backend-data` 卷。
 3. 将 `API_SECRET`（及已设置的 `ENCRYPTION_KEY`）写入 `.env`。
-4. 在**同一项目目录**启动全栈 Compose，以复用 `backend-data` 卷：
+4. 在**同一项目目录**启动全栈 Compose，以复用数据卷：
    ```bash
    docker compose up -d
    ```
 5. 在 `http://localhost:8080` 验证界面、API 与 MCP。
 
-临时回滚：停止全栈后启动分离部署（同一卷，勿用 `-v`）：
-
-```bash
-docker compose down
-docker compose -f docker-compose.split.yml up -d
-```
-
-## 已弃用的分离部署
-
-`docker-compose.split.yml` 分别运行 nginx 前端与 Node 后端。**新部署请勿使用。** 分离镜像（`github-stars-manager-frontend`、`github-stars-manager-backend` / `-server`）可能停止更新。
+分离镜像（`github-stars-manager-frontend`、`github-stars-manager-backend` / `-server`）已不再发布，请仅使用全栈镜像。
 
 ## MCP 服务（Agent 访问）
 

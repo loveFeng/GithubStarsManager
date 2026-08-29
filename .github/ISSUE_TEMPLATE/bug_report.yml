@@ -14,10 +14,9 @@ body:
       label: 平台
       description: 你在哪个平台遇到了这个问题？
       options:
-        - "Desktop: MacOS"
-        - "Desktop: Windows"
-        - "Desktop: Linux"
-        - "Web"
+        - "Docker / self-hosted Web"
+        - "Local Vite (npm run dev)"
+        - "Static hosting / other Web"
     validations:
       required: true
 
@@ -27,10 +26,9 @@ body:
       label: 后端
       description: 你遇到问题时使用的后端模式是什么？
       options:
-        - "未使用后端 / 纯前端 localStorage"
+        - "Docker 全栈镜像"
         - "本地后端 / npm run dev:server"
-        - "Docker / GHCR 后端"
-        - "远程后端"
+        - "纯前端（无后端）"
         - "不确定"
     validations:
       required: true

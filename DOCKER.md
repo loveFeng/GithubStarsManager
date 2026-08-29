@@ -1,8 +1,6 @@
 # Docker Deployment
 
-GithubStarsManager is deployed as a **single full-stack Docker image**: one Node/Express process serves the SPA, `/api`, and MCP endpoints from the same origin. The legacy split (nginx frontend + backend) compose file remains for migration only — see [Deprecated split deployment](#deprecated-split-deployment).
-
-The Electron desktop client has been removed; use the web UI (Docker or static hosting) instead.
+GithubStarsManager is deployed as a **single full-stack Docker image**: one Node/Express process serves the SPA, `/api`, and MCP endpoints from the same origin.
 
 ## Prerequisites
 
@@ -114,29 +112,20 @@ docker run -d -p 8080:3000 -v github-stars-data:/app/data \
   -e API_SECRET="your-secret" github-stars-manager-fullstack:local
 ```
 
-## Migrate from split (frontend + backend) deployment
+## Migrate from an older split (frontend + backend) deployment
 
-If you previously used `docker-compose.split.yml` (or the old two-service `docker-compose.yml`):
+If you previously ran separate nginx frontend and backend containers with a `backend-data` volume:
 
-1. Stop all writers without deleting the volume: `docker compose -f docker-compose.split.yml down` (no `-v`).
+1. Stop the old stack **without** deleting the volume (`docker compose down`, no `-v`).
 2. Back up the existing `backend-data` volume.
-3. Copy `API_SECRET` (and `ENCRYPTION_KEY` if set) into `.env`.
-4. Start the full-stack compose from the **same project directory** so the `backend-data` volume is reused:
+3. Put `API_SECRET` (and `ENCRYPTION_KEY` if set) in `.env`.
+4. From the **same project directory**, start the full-stack compose so the volume is reused:
    ```bash
    docker compose up -d
    ```
 5. Verify UI, API, and MCP at `http://localhost:8080`.
 
-To roll back temporarily, stop full-stack and start split again (same volume, no `-v`):
-
-```bash
-docker compose down
-docker compose -f docker-compose.split.yml up -d
-```
-
-## Deprecated split deployment
-
-`docker-compose.split.yml` runs separate frontend (nginx) and backend containers. **Do not use for new deployments.** Split images (`github-stars-manager-frontend`, `github-stars-manager-backend` / `-server`) may stop receiving updates.
+Split images (`github-stars-manager-frontend`, `github-stars-manager-backend` / `-server`) are no longer published; use the full-stack image only.
 
 ## MCP Server (Agent access)
 

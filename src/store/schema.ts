@@ -16,7 +16,6 @@ import type {
 } from '../types';
 import { defaultRepositoryChatAgentBudget, defaultRepositoryChatSettings } from '../types/repositoryChat';
 import { EMBEDDING_FORMAT_VERSION } from '../services/vectorSearchService';
-import { MCP_DEFAULT_HOST, MCP_DEFAULT_PORT, normalizeMcpHost } from '../utils/mcpHost';
 import { PRESET_FILTERS } from '../constants/presetFilters';
 
 export const REQUIRED_HEADER_MENU_IDS: ReadonlySet<HeaderMenuId> = new Set(['repositories', 'settings']);
@@ -235,8 +234,6 @@ export const normalizeVectorSearchStatus = (raw: unknown): VectorSearchStatus =>
 
 export const defaultMcpConfig: McpServiceConfig = {
   enabled: false,
-  host: MCP_DEFAULT_HOST,
-  port: MCP_DEFAULT_PORT,
   token: '',
 };
 
@@ -245,14 +242,8 @@ export const normalizeMcpConfig = (raw: unknown): McpServiceConfig => {
     return { ...defaultMcpConfig };
   }
   const config = raw as Record<string, unknown>;
-  const port =
-    typeof config.port === 'number' && Number.isInteger(config.port) && config.port >= 1 && config.port <= 65535
-      ? config.port
-      : defaultMcpConfig.port;
   return {
     enabled: config.enabled === true,
-    host: normalizeMcpHost(config.host),
-    port,
     token: typeof config.token === 'string' ? config.token : '',
   };
 };
