@@ -47,6 +47,7 @@ export type PersistedAppState = Partial<
     AppState,
     | 'user'
     | 'githubToken'
+    | 'githubAuthViaBackend'
     | 'isAuthenticated'
     | 'backendApiSecret'
     | 'repositories'

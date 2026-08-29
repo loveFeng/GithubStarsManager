@@ -40,6 +40,11 @@ export const normalizePersistedState = (
     typeof safePersisted.githubToken === 'string'
       ? safePersisted.githubToken
       : null;
+  // Web mode stores the PAT only on the server; revive the flag so sync gates work after reload.
+  const resolvedGithubAuthViaBackend = resolvedGithubToken
+    ? false
+    : (safePersisted.githubAuthViaBackend === true
+      || (!!resolvedUser && safePersisted.isAuthenticated === true));
   const resolvedBackendApiSecret =
     typeof safePersisted.backendApiSecret === 'string'
       ? (safePersisted.backendApiSecret || null)
@@ -81,6 +86,7 @@ export const normalizePersistedState = (
     // localStorage mirror. Persisted values always win over the mirror.
     user: resolvedUser,
     githubToken: resolvedGithubToken,
+    githubAuthViaBackend: resolvedGithubAuthViaBackend,
     backendApiSecret: resolvedBackendApiSecret,
     theme:
       safePersisted.theme === 'light' || safePersisted.theme === 'dark'
@@ -171,7 +177,7 @@ export const normalizePersistedState = (
     translationEngine: safePersisted.translationEngine === 'google' || safePersisted.translationEngine === 'ai'
       ? safePersisted.translationEngine
       : 'microsoft',
-    isAuthenticated: !!(resolvedUser && resolvedGithubToken),
+    isAuthenticated: !!(resolvedUser && (resolvedGithubToken || resolvedGithubAuthViaBackend)),
     releaseViewMode: safePersisted.releaseViewMode || 'timeline',
     releaseShowMode: safePersisted.releaseShowMode === 'unread' ? 'unread' : 'all',
     releaseLatestMode: safePersisted.releaseLatestMode === 'latest' ? 'latest' : 'all',

@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Bot, Clock, Copy, Edit3, ExternalLink, FileCode2, Loader2, StarOff, Trash2, User } from 'lucide-react';
 import type { Gist } from '../types';
-import { createGitHubApiService } from '../services/githubApiFactory';
+import { createGitHubApiService, isGitHubApiReady } from '../services/githubApiFactory';
 import { AIService } from '../services/aiService';
 import { useAppStore } from '../store/useAppStore';
 import { useShallow } from 'zustand/react/shallow';
@@ -28,7 +28,6 @@ export const GistCard: React.FC<GistCardProps> = ({
   onUnstarred,
 }) => {
   const {
-    githubToken,
     aiConfigs,
     activeAIConfig,
     language,
@@ -36,7 +35,6 @@ export const GistCard: React.FC<GistCardProps> = ({
     deleteGist,
     setAnalyzingGist,
   } = useAppStore(useShallow((state) => ({
-    githubToken: state.githubToken,
     aiConfigs: state.aiConfigs,
     activeAIConfig: state.activeAIConfig,
     language: state.language,
@@ -67,7 +65,7 @@ export const GistCard: React.FC<GistCardProps> = ({
 
   const handleAnalyze = async (event: React.MouseEvent) => {
     event.stopPropagation();
-    if (!githubToken) {
+    if (!isGitHubApiReady()) {
       toast(t('GitHub token 未找到，请重新登录。', 'GitHub token not found. Please login again.'), 'error');
       return;
     }
@@ -93,7 +91,7 @@ export const GistCard: React.FC<GistCardProps> = ({
     setAnalyzingGist(gist.id, true);
     setIsAnalyzingLocal(true);
     try {
-      const githubApi = createGitHubApiService(githubToken);
+      const githubApi = createGitHubApiService();
       const detail = await githubApi.getGistForAnalysis(gist.id, gist);
       const aiService = new AIService(activeConfig, language);
       const summary = await aiService.analyzeGist(detail, githubApi.getGistContentPreview(detail));
@@ -121,7 +119,7 @@ export const GistCard: React.FC<GistCardProps> = ({
 
   const handleUnstar = async (event: React.MouseEvent) => {
     event.stopPropagation();
-    if (!githubToken) return;
+    if (!isGitHubApiReady()) return;
     const confirmed = await confirm(
       t('取消收藏 Gist', 'Unstar Gist'),
       t('确定要取消收藏这个 gist 吗？', 'Are you sure you want to unstar this gist?'),
@@ -131,7 +129,7 @@ export const GistCard: React.FC<GistCardProps> = ({
 
     setIsMutating(true);
     try {
-      await createGitHubApiService(githubToken).unstarGist(gist.id);
+      await createGitHubApiService().unstarGist(gist.id);
       onUnstarred(gist.id);
       updateGist({ ...gist, starred: false });
       toast(t('已取消收藏', 'Unstarred'), 'success');
@@ -144,7 +142,7 @@ export const GistCard: React.FC<GistCardProps> = ({
 
   const handleDelete = async (event: React.MouseEvent) => {
     event.stopPropagation();
-    if (!githubToken || !isMine) return;
+    if (!isGitHubApiReady() || !isMine) return;
     const confirmed = await confirm(
       t('删除 Gist', 'Delete Gist'),
       t('确定要删除这个 gist 吗？此操作不可撤销。', 'Are you sure you want to delete this gist? This cannot be undone.'),
@@ -154,7 +152,7 @@ export const GistCard: React.FC<GistCardProps> = ({
 
     setIsMutating(true);
     try {
-      await createGitHubApiService(githubToken).deleteGist(gist.id);
+      await createGitHubApiService().deleteGist(gist.id);
       deleteGist(gist.id);
       onDeleted(gist.id);
       toast(t('Gist 已删除', 'Gist deleted'), 'success');

@@ -4,7 +4,7 @@ import type { Gist } from '../../../types';
 import type { GistCreateInput, GistUpdateInput } from '../../../services/githubApi';
 import { useAppStore } from '../../../store/useAppStore';
 import { selectGistViewState } from '../../../store/selectors';
-import { createGitHubApiService } from '../../../services/githubApiFactory';
+import { createGitHubApiService, isGitHubApiReady } from '../../../services/githubApiFactory';
 import { AIService } from '../../../services/aiService';
 import { useDialog } from '../../../hooks/useDialog';
 import { filterAndSortGists } from '../../../utils/gistUtils';
@@ -20,13 +20,13 @@ export const useGistActions = () => {
   const t = useCallback((zh: string, en: string) => state.language === 'zh' ? zh : en, [state.language]);
 
   const refreshGists = useCallback(async () => {
-    if (!state.githubToken) {
+    if (!isGitHubApiReady()) {
       toast(t('GitHub token 未找到，请重新登录。', 'GitHub token not found. Please login again.'), 'error');
       return;
     }
     setIsRefreshing(true);
     try {
-      const api = createGitHubApiService(state.githubToken);
+      const api = createGitHubApiService();
       const [mine, starred] = await Promise.all([
         api.getAllGists(state.gists),
         api.getAllStarredGists([...state.gists, ...state.starredGists]),
@@ -71,7 +71,7 @@ export const useGistActions = () => {
   }, [state]);
 
   const analyzeVisibleGists = useCallback(async () => {
-    if (!state.githubToken) {
+    if (!isGitHubApiReady()) {
       toast(t('GitHub token 未找到，请重新登录。', 'GitHub token not found. Please login again.'), 'error');
       return;
     }
@@ -93,7 +93,7 @@ export const useGistActions = () => {
     if (!confirmed) return;
 
     setIsAnalyzingAll(true);
-    const api = createGitHubApiService(state.githubToken);
+    const api = createGitHubApiService();
     const aiService = new AIService(activeConfig, state.language);
     let success = 0;
     let failed = 0;
@@ -123,9 +123,9 @@ export const useGistActions = () => {
   }, [state, t, toast, confirm]);
 
   const fetchGistDetail = useCallback(async (gist: Gist): Promise<Gist | null> => {
-    if (!state.githubToken) return null;
+    if (!isGitHubApiReady()) return null;
     try {
-      const detail = await createGitHubApiService(state.githubToken).getGist(gist.id, gist);
+      const detail = await createGitHubApiService().getGist(gist.id, gist);
       state.updateGist(detail);
       return detail;
     } catch (error) {
@@ -140,8 +140,8 @@ export const useGistActions = () => {
   }, [state, t, toast]);
 
   const submitGist = useCallback(async (input: GistCreateInput | GistUpdateInput, editingGist: Gist | null) => {
-    if (!state.githubToken) return;
-    const api = createGitHubApiService(state.githubToken);
+    if (!isGitHubApiReady()) return;
+    const api = createGitHubApiService();
     try {
       if (editingGist) {
         const updated = await api.updateGist(editingGist.id, input as GistUpdateInput, editingGist);

@@ -146,8 +146,8 @@ export async function tryRestoreAuthFromBackend(): Promise<boolean> {
 
   const state = useAppStore.getState();
 
-  // Never clobber an existing session.
-  if (state.user && (state.githubToken || state.githubAuthViaBackend)) return false;
+  // Already ready: local PAT, or backend-held PAT with auth flag set.
+  if (state.githubToken || (state.githubAuthViaBackend && state.user)) return false;
 
   _isRestoringAuth = true;
   try {
@@ -157,11 +157,14 @@ export async function tryRestoreAuthFromBackend(): Promise<boolean> {
     if (!session.hasGitHubToken) return false;
 
     const latest = useAppStore.getState();
-    if (latest.user || latest.githubToken || latest.githubAuthViaBackend) return false;
+    // Another path may have finished while we awaited the session.
+    if (latest.githubToken || (latest.githubAuthViaBackend && latest.user)) return false;
 
     const userData = await backend.getCurrentUser();
     const user = userData as unknown as import('../types').GitHubUser;
 
+    // Hydration may already have a user profile with githubToken=null and
+    // githubAuthViaBackend=false — still mark backend auth so GitHub sync works.
     useAppStore.getState().setGitHubAuthViaBackend(true);
     useAppStore.getState().setUser(user);
     logger.info('sync.restoreAuth', 'Restored session from backend cookie', { login: user.login });

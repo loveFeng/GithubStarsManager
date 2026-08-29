@@ -100,6 +100,58 @@ function buildApiUrl(baseUrl: string, pathWithVersion: string): string {
   }
 }
 
+// POST /api/proxy/trending-rss
+// Fetches GitHub Trending RSS (mshibanami.github.io) server-side.
+// Required in web mode: Helmet CSP connect-src 'self' blocks browser→RSS fetches.
+router.post('/api/proxy/trending-rss', async (req, res) => {
+  try {
+    const body = req.body as { url?: string };
+    if (!body.url || typeof body.url !== 'string') {
+      res.status(400).json({ error: 'Missing url', code: 'MISSING_URL' });
+      return;
+    }
+
+    let parsed: URL;
+    try {
+      parsed = new URL(body.url);
+    } catch {
+      res.status(400).json({ error: 'Invalid URL format', code: 'INVALID_URL' });
+      return;
+    }
+
+    const allowed =
+      parsed.protocol === 'https:'
+      && parsed.hostname.toLowerCase() === 'mshibanami.github.io'
+      && /^\/GitHubTrendingRSS\/(daily|weekly|monthly)\/all\.xml$/.test(parsed.pathname);
+    if (!allowed) {
+      res.status(400).json({ error: 'URL not allowed for trending RSS proxy', code: 'HOST_NOT_ALLOWED' });
+      return;
+    }
+
+    validateUrl(body.url);
+
+    const proxyConfig = getProxyConfig();
+    const result = await proxyRequest({
+      url: body.url,
+      method: 'GET',
+      headers: {
+        Accept: 'application/rss+xml, application/xml, text/xml, */*',
+        'User-Agent': 'GithubStarsManager-Backend',
+      },
+      proxyConfig,
+      preserveRawResponse: true,
+    });
+
+    const contentType = String(result.headers['content-type'] || 'application/xml');
+    res.status(result.status).type(contentType).send(
+      typeof result.data === 'string' ? result.data : JSON.stringify(result.data),
+    );
+  } catch (err) {
+    logger.errorFromError('proxy.trending-rss', 'Trending RSS proxy error', err);
+    res.status(500).json({ error: 'Trending RSS proxy failed', code: 'TRENDING_RSS_PROXY_FAILED' });
+  }
+});
+
 // POST /api/proxy/github/*
 router.post('/api/proxy/github/*', async (req, res) => {
   try {

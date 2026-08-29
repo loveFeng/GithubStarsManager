@@ -5,8 +5,7 @@ import { useAppStore, getAllCategories } from '../store/useAppStore';
 import { useShallow } from 'zustand/react/shallow';
 import { AIService } from '../services/aiService';
 import { EmbeddingClient, VectorSearchService } from '../services/vectorSearchService';
-import { GitHubApiService } from '../services/githubApi';
-import { createGitHubListsApiService } from '../services/githubApiFactory';
+import { createGitHubListsApiService, createGitHubApiService, isGitHubApiReady } from '../services/githubApiFactory';
 import { forceSyncToBackend } from '../services/autoSync';
 import { useSearchShortcuts } from '../hooks/useSearchShortcuts';
 import { useDialog } from '../hooks/useDialog';
@@ -83,7 +82,6 @@ export const SearchBar: React.FC = () => {
     customCategories,
     hiddenDefaultCategoryIds,
     defaultCategoryOverrides,
-    githubToken,
     lastSync,
     setRepositories,
     setLastSync,
@@ -104,7 +102,6 @@ export const SearchBar: React.FC = () => {
     customCategories: state.customCategories,
     hiddenDefaultCategoryIds: state.hiddenDefaultCategoryIds,
     defaultCategoryOverrides: state.defaultCategoryOverrides,
-    githubToken: state.githubToken,
     lastSync: state.lastSync,
     setRepositories: state.setRepositories,
     setLastSync: state.setLastSync,
@@ -752,14 +749,14 @@ export const SearchBar: React.FC = () => {
   const t = (zh: string, en: string) => language === 'zh' ? zh : en;
 
   const handleStarSync = async (mode: 'auto' | 'stars-only' | 'stars-and-lists' = 'auto') => {
-    if (!githubToken) {
+    if (!isGitHubApiReady()) {
       toast(t('GitHub token 未找到，请重新登录。', 'GitHub token not found. Please login again.'), 'error');
       return;
     }
 
     setSyncingStars(true);
     try {
-      const githubApi = new GitHubApiService(githubToken);
+      const githubApi = createGitHubApiService();
       const newRepositories = await githubApi.getAllStarredRepositories();
 
       const storeRepos = useAppStore.getState().repositories;
@@ -800,7 +797,7 @@ export const SearchBar: React.FC = () => {
         const listRepoMap = new Map(finalRepositories.map(repo => [repo.full_name.toLowerCase(), repo]));
         const appliedTagsCount: Record<string, number> = {};
         try {
-          const listsApi = createGitHubListsApiService(githubToken);
+          const listsApi = createGitHubListsApiService();
           const login = user?.login;
           if (!login) {
             throw new Error(t('无法获取 GitHub 用户名，请重新登录。', 'Failed to get GitHub username. Please login again.'));

@@ -4,7 +4,7 @@ import type { DiscoveryRepo } from '../types';
 import { useAppStore, getAllCategories } from '../store/useAppStore';
 import { analyzeRepository, createFailedAnalysisResult } from '../services/aiAnalysisHelper';
 import { forceSyncToBackend } from '../services/autoSync';
-import { GitHubApiService } from '../services/githubApi';
+import { createGitHubApiService, isGitHubApiReady } from '../services/githubApiFactory';
 import { ReadmeModal } from './ReadmeModal';
 import { Modal } from './Modal';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
@@ -21,6 +21,7 @@ interface SubscriptionRepoCardProps {
 export const SubscriptionRepoCard: React.FC<SubscriptionRepoCardProps> = ({ repo, onStar, onAnalyze }) => {
   const language = useAppStore(state => state.language);
   const githubToken = useAppStore(state => state.githubToken);
+  const githubAuthViaBackend = useAppStore(state => state.githubAuthViaBackend);
   const aiConfigs = useAppStore(state => state.aiConfigs);
   const activeAIConfig = useAppStore(state => state.activeAIConfig);
   const customCategories = useAppStore(state => state.customCategories);
@@ -96,14 +97,16 @@ export const SubscriptionRepoCard: React.FC<SubscriptionRepoCardProps> = ({ repo
     return platformIconMap[platform.toLowerCase() as keyof typeof platformIconMap] || <Monitor className="w-3 h-3" />;
   };
 
+  const hasGitHubAuth = !!(githubToken || githubAuthViaBackend);
+
   // 执行取消Star操作
   const executeUnstar = useCallback(async () => {
-    if (!githubToken) return;
+    if (!isGitHubApiReady()) return;
     
     setIsStarring(true);
     
     try {
-      const githubApi = new GitHubApiService(githubToken);
+      const githubApi = createGitHubApiService();
       const [owner, name] = repo.full_name.split('/');
       
       // 乐观更新：立即更新UI状态
@@ -131,12 +134,12 @@ export const SubscriptionRepoCard: React.FC<SubscriptionRepoCardProps> = ({ repo
       setIsStarring(false);
       setPendingUnstarAction(null);
     }
-  }, [githubToken, repo, repositories, deleteRepository, t, toast]);
+  }, [repo, repositories, deleteRepository, t, toast]);
 
   // 处理添加/取消Star
   const handleStar = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!githubToken || isStarring) return;
+    if (!isGitHubApiReady() || isStarring) return;
 
     if (isStarred) {
       // 取消Star - 显示自定义确认对话框
@@ -149,7 +152,7 @@ export const SubscriptionRepoCard: React.FC<SubscriptionRepoCardProps> = ({ repo
     setIsStarring(true);
     
     try {
-      const githubApi = new GitHubApiService(githubToken);
+      const githubApi = createGitHubApiService();
       const [owner, name] = repo.full_name.split('/');
       
       // 乐观更新：立即更新UI状态
@@ -189,7 +192,7 @@ export const SubscriptionRepoCard: React.FC<SubscriptionRepoCardProps> = ({ repo
     } finally {
       setIsStarring(false);
     }
-  }, [githubToken, isStarring, repo, onStar, t, toast, isStarred, addRepository, executeUnstar]);
+  }, [isStarring, repo, onStar, t, toast, isStarred, addRepository, executeUnstar]);
 
   // 处理在ZRead打开
   const handleOpenInZRead = useCallback((e: React.MouseEvent) => {
@@ -202,7 +205,7 @@ export const SubscriptionRepoCard: React.FC<SubscriptionRepoCardProps> = ({ repo
   const handleAnalyze = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
 
-    if (!githubToken) {
+    if (!isGitHubApiReady()) {
       toast(t('GitHub Token 未找到，请重新登录。', 'GitHub token not found. Please login again.'), 'error');
       return;
     }
@@ -332,7 +335,7 @@ export const SubscriptionRepoCard: React.FC<SubscriptionRepoCardProps> = ({ repo
               <Button
                 size="icon"
                 onClick={handleAnalyze}
-                disabled={!githubToken || isAnalyzing}
+                disabled={!hasGitHubAuth || isAnalyzing}
                 className="flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-muted text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-50 disabled:cursor-not-allowed"
                 title={
                   isAnalyzed 
@@ -377,7 +380,7 @@ export const SubscriptionRepoCard: React.FC<SubscriptionRepoCardProps> = ({ repo
               <Button
                 size="icon"
                 onClick={handleStar}
-                disabled={!githubToken || isStarring}
+                disabled={!hasGitHubAuth || isStarring}
                 className={`flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                   isStarred
                     ? 'bg-primary text-primary-foreground shadow-sm dark:bg-primary/80 dark:text-primary-foreground'

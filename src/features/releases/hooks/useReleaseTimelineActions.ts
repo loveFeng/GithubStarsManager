@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../../../store/useAppStore';
 import { selectReleaseTimelineState } from '../../../store/selectors';
-import { GitHubApiService } from '../../../services/githubApi';
+import { createGitHubApiService, isGitHubApiReady } from '../../../services/githubApiFactory';
 import { forceSyncToBackend } from '../../../services/autoSync';
 import { backend } from '../../../services/backendAdapter';
 import { useDialog } from '../../../hooks/useDialog';
@@ -31,7 +31,6 @@ export const useReleaseTimelineActions = () => {
 
   const handleRefresh = useCallback(async () => {
     const {
-      githubToken,
       language,
       setReleaseIsRefreshing,
       updateRepository,
@@ -40,7 +39,7 @@ export const useReleaseTimelineActions = () => {
       upsertReleases,
       includePreRelease,
     } = state;
-    if (!githubToken) {
+    if (!isGitHubApiReady()) {
       toast(language === 'zh' ? 'GitHub token 未找到，请重新登录。' : 'GitHub token not found. Please login again.', 'error');
       return;
     }
@@ -59,7 +58,7 @@ export const useReleaseTimelineActions = () => {
 
     setReleaseIsRefreshing(true);
     try {
-      const githubApi = new GitHubApiService(githubToken);
+      const githubApi = createGitHubApiService();
       const { releases: newReleases, latestReleases, failedRepos } = await githubApi.getMultipleRepositoryReleases(
         subscribedRepos,
         { includePreRelease, refreshExistingAssets: true },

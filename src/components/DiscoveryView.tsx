@@ -413,6 +413,7 @@ const DataStats: React.FC<DataStatsProps> = ({ currentCount, totalCount, languag
 
 export const DiscoveryView: React.FC = React.memo(() => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const githubAuthViaBackend = useAppStore((state) => state.githubAuthViaBackend);
   const {
     githubToken,
     language,
@@ -504,21 +505,23 @@ export const DiscoveryView: React.FC = React.memo(() => {
     }
   }, [selectedDiscoveryChannel, refreshChannel]);
 
-  // 趋势时间范围改变时刷新数据
+  // 趋势时间范围改变时刷新数据（不要依赖 refreshChannel 引用，避免无关重渲染连环刷新）
   useEffect(() => {
     if (selectedDiscoveryChannel === 'trending' && trendingTimeRange) {
       refreshChannel('trending', 1, false);
     }
-  }, [trendingTimeRange, selectedDiscoveryChannel, refreshChannel]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: only time-range / channel changes
+  }, [trendingTimeRange, selectedDiscoveryChannel]);
 
   // 主题改变时刷新数据
   useEffect(() => {
-    if (selectedDiscoveryChannel !== 'topic' || !githubToken) return;
+    if (selectedDiscoveryChannel !== 'topic' || !(githubToken || githubAuthViaBackend)) return;
     const applied = appliedTopicRef.current;
     if (applied?.topic === discoverySelectedTopic && applied.platform === discoveryPlatform) return;
     appliedTopicRef.current = { topic: discoverySelectedTopic, platform: discoveryPlatform };
     refreshChannel('topic', 1, false);
-  }, [githubToken, discoverySelectedTopic, discoveryPlatform, selectedDiscoveryChannel, refreshChannel]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: topic/platform/auth gates only
+  }, [githubToken, githubAuthViaBackend, discoverySelectedTopic, discoveryPlatform, selectedDiscoveryChannel]);
 
   const formatLastRefresh = useCallback((timestamp: string | null) => {
     if (!timestamp) return '';
@@ -947,7 +950,7 @@ export const DiscoveryView: React.FC = React.memo(() => {
             {allRepos.length > 0 && (
               <div className="space-y-4">
                 {allRepos.map((repo, index) => (
-                  <div key={repo.id} data-repo-index={index}>
+                  <div key={repo.id > 0 ? repo.id : `${repo.full_name}-${index}`} data-repo-index={index}>
                     <SubscriptionRepoCard repo={repo} />
                   </div>
                 ))}

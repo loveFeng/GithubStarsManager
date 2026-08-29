@@ -6,7 +6,7 @@ import { Modal } from './Modal';
 import type { Gist, GistFile } from '../types';
 import { getGistTitle, inferGistCodeLanguage } from '../utils/gistUtils';
 import { safeWriteText } from '../utils/clipboardUtils';
-import { createGitHubApiService } from '../services/githubApiFactory';
+import { createGitHubApiService, isGitHubApiReady } from '../services/githubApiFactory';
 import { useAppStore } from '../store/useAppStore';
 import { useDialog } from '../hooks/useDialog';
 import 'highlight.js/styles/github.min.css';
@@ -26,6 +26,7 @@ const HighlightedCode: React.FC<HighlightedCodeProps> = ({ file, onContentLoaded
   const codeRef = useRef<HTMLElement>(null);
   const language = inferGistCodeLanguage(file.filename, file.language);
   const githubToken = useAppStore(state => state.githubToken);
+  const githubAuthViaBackend = useAppStore(state => state.githubAuthViaBackend);
   const language2 = useAppStore(state => state.language);
   const t = (zh: string, en: string) => language2 === 'zh' ? zh : en;
 
@@ -53,13 +54,13 @@ const HighlightedCode: React.FC<HighlightedCodeProps> = ({ file, onContentLoaded
     setIsLoadingRaw(true);
     setRawError(null);
     const doFetch = async () => {
-      if (!githubToken) {
+      if (!isGitHubApiReady()) {
         setRawError(t('未配置 GitHub token，无法加载文件内容', 'GitHub token not configured, cannot load file content'));
         setIsLoadingRaw(false);
         return;
       }
       try {
-        const api = createGitHubApiService(githubToken);
+        const api = createGitHubApiService();
         const text = await api.getGistFileRaw(file.raw_url!, controller.signal);
         if (controller.signal.aborted) return;
         setRawContent(text);
@@ -77,7 +78,7 @@ const HighlightedCode: React.FC<HighlightedCodeProps> = ({ file, onContentLoaded
     return () => controller.abort();
     // retryTick 用于手动触发重试；file.raw_url/filename 变化时也会重新拉取。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [needsRawFetch, file.raw_url, file.filename, retryTick, githubToken]);
+  }, [needsRawFetch, file.raw_url, file.filename, retryTick, githubToken, githubAuthViaBackend]);
 
   useEffect(() => {
     if (!codeRef.current) return;

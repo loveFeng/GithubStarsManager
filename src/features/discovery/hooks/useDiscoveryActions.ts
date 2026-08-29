@@ -3,7 +3,7 @@ import { useShallow } from 'zustand/react/shallow';
 import type { DiscoveryChannelId, DiscoveryRepo, PaginatedDiscoveryRepositories } from '../../../types';
 import { useAppStore } from '../../../store/useAppStore';
 import { selectDiscoveryViewState } from '../../../store/selectors';
-import { GitHubApiService } from '../../../services/githubApi';
+import { createGitHubApiService, isGitHubApiReady } from '../../../services/githubApiFactory';
 import { AIService } from '../../../services/aiService';
 import { AIAnalysisOptimizer } from '../../../services/aiAnalysisOptimizer';
 import { discoveryAnalysisStorage } from '../../../services/discoveryAnalysisStorage';
@@ -36,7 +36,7 @@ export const useDiscoveryActions = (scrollContainerRef: RefObject<HTMLDivElement
   const channelRequestVersionRef = useRef<Partial<Record<DiscoveryChannelId, number>>>({});
   const channelLoadingVersionRef = useRef<Record<string, number>>({});
   const latestStateRef = useRef(state);
-  const authSessionIdentity = useAppStore(current => `${current.githubToken ?? ''}\u0000${current.user?.id ?? ''}\u0000${current.user?.login ?? ''}`);
+  const authSessionIdentity = useAppStore(current => `${current.githubToken ?? ''}\u0000${current.githubAuthViaBackend ? '1' : '0'}\u0000${current.user?.id ?? ''}\u0000${current.user?.login ?? ''}`);
   const { captureSession, isCurrentSession } = useAuthSessionGeneration(authSessionIdentity);
   useEffect(() => {
     latestStateRef.current = state;
@@ -53,7 +53,7 @@ export const useDiscoveryActions = (scrollContainerRef: RefObject<HTMLDivElement
 
   const refreshChannel = useCallback(async (channelId: DiscoveryChannelId, page = 1, append = false) => {
     const currentState = latestStateRef.current;
-    if (!currentState.githubToken) {
+    if (!isGitHubApiReady()) {
       toast(t('GitHub Token 未找到，请重新登录。', 'GitHub token not found. Please login again.'), 'error');
       return;
     }
@@ -75,7 +75,7 @@ export const useDiscoveryActions = (scrollContainerRef: RefObject<HTMLDivElement
       currentState.setDiscoveryLoading(channelId, true);
     }
     try {
-      const api = new GitHubApiService(currentState.githubToken);
+      const api = createGitHubApiService();
       let result: PaginatedDiscoveryRepositories;
       switch (channelId) {
         case 'trending':
@@ -147,7 +147,7 @@ export const useDiscoveryActions = (scrollContainerRef: RefObject<HTMLDivElement
 
   const handleAnalyzePage = useCallback(async () => {
     const analysisState = latestStateRef.current;
-    if (!analysisState.githubToken) return;
+    if (!isGitHubApiReady()) return;
     const activeConfig = analysisState.aiConfigs.find(config => config.id === analysisState.activeAIConfig);
     if (!activeConfig) {
       toast(t('请先在设置中配置AI服务。', 'Please configure AI service in settings first.'), 'error');
@@ -181,7 +181,7 @@ export const useDiscoveryActions = (scrollContainerRef: RefObject<HTMLDivElement
     optimizerRef.current = optimizer;
     analysisState.setAnalysisProgress({ current: 0, total: unanalyzed.length });
     try {
-      const api = new GitHubApiService(analysisState.githubToken);
+      const api = createGitHubApiService();
       const service = new AIService(activeConfig, analysisState.language);
       const readmeCache = await optimizer.prefetchReadmes(unanalyzed, api);
       if (optimizer.isAborted() || !isCurrentSession(analysisSession)) return;

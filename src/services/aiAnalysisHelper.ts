@@ -1,5 +1,5 @@
 import { Repository, AIConfig, Category, DiscoveryRepo } from '../types';
-import { GitHubApiService } from './githubApi';
+import { createGitHubApiService } from './githubApiFactory';
 import { AIService } from './aiService';
 import { backend } from './backendAdapter';
 import { resolveCategoryAssignment, buildCategoryHints } from '../utils/categoryUtils';
@@ -17,7 +17,8 @@ export interface AIAnalysisResult {
 
 export interface AnalyzeRepositoryOptions {
   repository: Repository | DiscoveryRepo;
-  githubToken: string;
+  /** Optional local PAT; omit when GitHub auth is via backend proxy. */
+  githubToken?: string | null;
   aiConfig: AIConfig;
   language: string;
   categories: Category[];
@@ -30,7 +31,7 @@ export const analyzeRepository = async (options: AnalyzeRepositoryOptions): Prom
 
   onProgress?.('Initializing...');
   
-  const githubApi = new GitHubApiService(githubToken);
+  const githubApi = createGitHubApiService(githubToken);
   const aiService = new AIService(aiConfig, language);
 
   const [owner, name] = repository.full_name.split('/');

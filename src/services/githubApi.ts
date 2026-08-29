@@ -199,6 +199,38 @@ export class GitHubApiService {
     return headers;
   }
 
+  /**
+   * Fetch GitHub Trending RSS XML. Prefer same-origin backend proxy so Helmet CSP
+   * (connect-src 'self') and optional outbound HTTP/SOCKS proxies both work.
+   */
+  private async fetchTrendingRssXml(rssUrl: string): Promise<string> {
+    if (this.backendUrl) {
+      const response = await fetch(`${this.backendUrl}/proxy/trending-rss`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: this.getBackendHeaders(),
+        body: JSON.stringify({ url: rssUrl }),
+      });
+      if (!response.ok) {
+        let detail = response.statusText;
+        try {
+          const data = await response.json() as { error?: string };
+          detail = data.error || detail;
+        } catch { /* ignore */ }
+        throw new Error(`Trending RSS proxy error: ${response.status} ${detail}`);
+      }
+      return response.text();
+    }
+
+    const response = await fetch(rssUrl, {
+      headers: { Accept: 'application/rss+xml, application/xml, text/xml' },
+    });
+    if (!response.ok) {
+      throw new Error(`RSS fetch failed: ${response.status}`);
+    }
+    return response.text();
+  }
+
   private async makeRequest<T>(endpoint: string, options: RequestInit & { operationTag?: string } = {}, signal?: AbortSignal): Promise<T> {
     const startTime = Date.now();
     const method = (options.method || 'GET') as string;
@@ -1226,15 +1258,8 @@ export class GitHubApiService {
     const rssUrl = `https://mshibanami.github.io/GitHubTrendingRSS/${timeRange}/all.xml`;
 
     try {
-      const response = await fetch(rssUrl, {
-        headers: { 'Accept': 'application/rss+xml, application/xml, text/xml' }
-      });
+      const text = await this.fetchTrendingRssXml(rssUrl);
 
-      if (!response.ok) {
-        throw new Error(`RSS fetch failed: ${response.status}`);
-      }
-
-      const text = await response.text();
       const parser = new DOMParser();
       const xml = parser.parseFromString(text, 'text/xml');
       const items = xml.querySelectorAll('item');
@@ -1317,7 +1342,7 @@ export class GitHubApiService {
       return repos;
     } catch (error) {
       logger.error('githubApi', 'Failed to fetch trending from RSS', error);
-      return [];
+      throw error instanceof Error ? error : new Error(String(error));
     }
   }
 
@@ -1432,13 +1457,7 @@ export class GitHubApiService {
     const rssUrl = rssUrlMap[timeRange];
 
     try {
-      const response = await fetch(rssUrl, {
-        headers: { 'Accept': 'application/rss+xml, application/xml, text/xml' }
-      });
-      if (!response.ok) {
-        throw new Error(`RSS fetch failed: ${response.status}`);
-      }
-      const text = await response.text();
+      const text = await this.fetchTrendingRssXml(rssUrl);
       const parser = new DOMParser();
       const xml = parser.parseFromString(text, 'text/xml');
       const items = xml.querySelectorAll('item');
@@ -1474,7 +1493,8 @@ export class GitHubApiService {
         const forks = forksMatch ? parseInt(forksMatch[1].replace(/,/g, '')) : 0;
 
         repos.push({
-          id: 0, // will be filled by GitHub API
+          // Temporary negative id until GitHub API enrichment; avoid React key collisions on 0.
+          id: -(startIndex + i + 1),
           name: repoName,
           full_name: `${owner}/${repoName}`,
           description: description,
@@ -1498,7 +1518,7 @@ export class GitHubApiService {
       }
 
       // Supplement missing fields via GitHub API
-      const reposNeedUpdate = repos.filter(r => r.id === 0 || r.stargazers_count === 0 || r.forks_count === 0 || !r.language);
+      const reposNeedUpdate = repos.filter(r => r.id < 0 || r.stargazers_count === 0 || r.forks_count === 0 || !r.language);
       if (reposNeedUpdate.length > 0) {
         await Promise.all(reposNeedUpdate.map(async (r) => {
           try {
@@ -1550,7 +1570,7 @@ export class GitHubApiService {
       };
     } catch (error) {
       logger.error('githubApi', 'Failed to fetch trending from RSS', error);
-      return { repos: [], hasMore: false, nextPageIndex: 1, totalCount: 0 };
+      throw error instanceof Error ? error : new Error(String(error));
     }
   }
 

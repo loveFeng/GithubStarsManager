@@ -8,7 +8,7 @@ import type {
   RepositoryChatAgentBudget,
 } from '../types/repositoryChat';
 import { AIService } from './aiService';
-import { createGitHubApiService } from './githubApiFactory';
+import { createGitHubApiService, isGitHubApiReady } from './githubApiFactory';
 
 const MAX_CONTEXT_CHARS = 96_000;
 const MAX_EVIDENCE_EXCERPT_CHARS = 12_000;
@@ -810,11 +810,11 @@ const formatStructuredAnswer = (input: RepositoryChatTurnInput, answer: { items:
  */
 const runEvidenceDrivenRepositoryChatTurn = async (input: RepositoryChatTurnInput): Promise<RepositoryChatTurnResult> => {
   if (!input.session.sourceRefSha) throw new Error('A pinned source SHA is required before asking this repository');
-  if (!input.githubToken) throw new Error(input.language === 'zh' ? '请先配置 GitHub token。' : 'Configure a GitHub token before asking this repository.');
+  if (!isGitHubApiReady()) throw new Error(input.language === 'zh' ? '请先配置 GitHub token。' : 'Configure a GitHub token before asking this repository.');
   if (!input.question.trim()) throw new Error(input.language === 'zh' ? '请输入问题。' : 'Enter a question.');
 
   const [owner, repo] = splitOwnerAndRepo(input.repository.full_name);
-  const github = createGitHubApiService(input.githubToken);
+  const github = createGitHubApiService(input.githubToken || undefined);
   const ai = new AIService(input.aiConfig, input.language);
   const budget = resolveEvidenceAgentBudget(input);
   const startedAt = Date.now();

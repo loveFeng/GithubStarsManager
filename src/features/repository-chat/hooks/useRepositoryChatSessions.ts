@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Repository } from '../../../types';
 import { useAppStore } from '../../../store/useAppStore';
 import { resolveRepositoryChatHeadSha } from '../../../services/repositoryChatService';
+import { isGitHubApiReady } from '../../../services/githubApiFactory';
 import type { RepositoryChatMessage, RepositoryChatSession } from '../../../types/repositoryChat';
 import { repositoryChatSessionRepository } from '../repositories/sessionRepository';
 
@@ -24,6 +25,7 @@ export const useRepositoryChatSessions = ({
   resolveSourceRefSha,
 }: UseRepositoryChatSessionsOptions) => {
   const githubToken = useAppStore((state) => state.githubToken);
+  const githubAuthViaBackend = useAppStore((state) => state.githubAuthViaBackend);
   const retainSessionDays = useAppStore((state) => state.repositoryChatSettings.retainSessionDays);
   const [sessions, setSessions] = useState<RepositoryChatSession[]>([]);
   const [activeSession, setActiveSession] = useState<RepositoryChatSession | null>(null);
@@ -78,8 +80,8 @@ export const useRepositoryChatSessions = ({
     setError(null);
     try {
       const resolveSha = resolveSourceRefSha ?? ((targetRepository: Repository) => {
-        if (!githubToken) throw new Error(language === 'zh' ? '请先配置 GitHub token。' : 'Configure a GitHub token before starting a conversation.');
-        return resolveRepositoryChatHeadSha(targetRepository, githubToken);
+        if (!isGitHubApiReady()) throw new Error(language === 'zh' ? '请先配置 GitHub token。' : 'Configure a GitHub token before starting a conversation.');
+        return resolveRepositoryChatHeadSha(targetRepository, githubToken ?? '');
       });
       const sourceRefSha = await resolveSha(repository);
       if (operationId !== operationIdRef.current) return null;
@@ -105,7 +107,7 @@ export const useRepositoryChatSessions = ({
     } finally {
       if (operationId === operationIdRef.current) setIsLoading(false);
     }
-  }, [githubToken, language, repository, resolveSourceRefSha]);
+  }, [githubToken, githubAuthViaBackend, language, repository, resolveSourceRefSha]);
 
   const selectSession = useCallback(async (sessionId: string) => {
     const operationId = ++operationIdRef.current;

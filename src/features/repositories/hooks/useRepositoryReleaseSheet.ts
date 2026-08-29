@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import type { AIConfig, Release, ReleaseAsset, Repository } from '../../../types';
 import { backend } from '../../../services/backendAdapter';
-import { GitHubApiService } from '../../../services/githubApi';
+import { createGitHubApiService, isGitHubApiReady } from '../../../services/githubApiFactory';
 import { sendToRpcDownload } from '../../../services/rpcDownloadService';
 import { AIService } from '../../../services/aiService';
 import { useAppStore } from '../../../store/useAppStore';
@@ -203,10 +203,10 @@ export const useRepositoryReleaseSheet = (repository: Repository) => {
       }
 
       if (liveReleases === null) {
-        if (!githubToken) {
+        if (!isGitHubApiReady()) {
           throw backendError || new Error(t('请先在设置中配置 GitHub Token，或连接后端服务。', 'Configure a GitHub token in Settings or connect the backend service first.'));
         }
-        const githubApi = new GitHubApiService(githubToken);
+        const githubApi = createGitHubApiService();
         liveReleases = await fetchAllPages(
           (page, signal) => githubApi.getRepositoryReleasesPage(owner, name, page, REMOTE_RELEASE_PAGE_SIZE, signal),
           controller.signal,

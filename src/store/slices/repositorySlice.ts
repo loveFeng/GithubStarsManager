@@ -155,7 +155,7 @@ export const createRepositorySlice: AppStoreSlice<Pick<import('../types').AppAct
         const t = (zh: string, en: string) => (state.language === 'zh' ? zh : en);
         // 重入保护：已有回写进行中时直接返回，避免并发创建重复 list 并互相覆盖成员
         if (state.listsPush.isRunning) return;
-        if (!state.githubToken) {
+        if (!state.githubToken && !state.githubAuthViaBackend) {
           set({ listsPush: { isRunning: false, total: 0, done: 0, currentLabel: null, message: null, error: t('未登录 GitHub，请先连接', 'Not connected to GitHub yet') } });
           return;
         }

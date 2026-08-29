@@ -6,7 +6,7 @@ import type { CustomReleaseRepository, ReleaseSourceId } from '../types';
 import { useAppStore } from '../store/useAppStore';
 import { Modal } from './Modal';
 import { useDialog } from '../hooks/useDialog';
-import { GitHubApiService } from '../services/githubApi';
+import { createGitHubApiService, isGitHubApiReady } from '../services/githubApiFactory';
 import {
   CUSTOM_RELEASE_SOURCE_ID,
   RELEASE_SOURCE_LABELS,
@@ -211,19 +211,21 @@ interface WatchCustomReleaseSyncPanelProps {
 
 const WatchCustomReleaseSyncPanel: React.FC<WatchCustomReleaseSyncPanelProps> = ({ repos, language }) => {
   const githubToken = useAppStore(state => state.githubToken);
+  const githubAuthViaBackend = useAppStore(state => state.githubAuthViaBackend);
   const setReleaseSourceRepositories = useAppStore(state => state.setReleaseSourceRepositories);
   const updateReleaseSourceRepository = useAppStore(state => state.updateReleaseSourceRepository);
   const { toast } = useDialog();
   const [isSyncing, setIsSyncing] = useState(false);
 
   const t = (zh: string, en: string) => language === 'zh' ? zh : en;
+  const hasGitHubAuth = !!(githubToken || githubAuthViaBackend);
 
   const handleSync = async () => {
-    if (!githubToken || isSyncing) return;
+    if (!isGitHubApiReady() || isSyncing) return;
 
     setIsSyncing(true);
     try {
-      const githubApi = new GitHubApiService(githubToken);
+      const githubApi = createGitHubApiService();
       // 只拉 /user/subscriptions（含私有仓）。/users/{login}/subscriptions 已被 GitHub 改为
       // 恒定返回 204 空响应体，且其结果本就是前者的公开子集，并行合并只会拖垮整个同步。
       const watchedRepos = await githubApi.getAllWatchedRepositories();
@@ -263,7 +265,7 @@ const WatchCustomReleaseSyncPanel: React.FC<WatchCustomReleaseSyncPanelProps> = 
         <Button
           type="button"
           onClick={handleSync}
-          disabled={isSyncing || !githubToken}
+          disabled={isSyncing || !hasGitHubAuth}
           className="inline-flex min-h-10 min-w-24 flex-shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} />

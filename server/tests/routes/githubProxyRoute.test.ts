@@ -68,6 +68,39 @@ describe('GitHub proxy routes', () => {
     expect(options.proxyConfig).toMatchObject({ enabled: true, type: 'http', host: '127.0.0.1', port: 7890 });
   });
 
+  it('proxies allowlisted GitHub Trending RSS URLs as XML text', async () => {
+    const app = createTestApp();
+    proxyRequestMock.mockResolvedValueOnce({
+      status: 200,
+      data: '<?xml version="1.0"?><rss><channel></channel></rss>',
+      headers: { 'content-type': 'application/xml' },
+    });
+
+    const rssUrl = 'https://mshibanami.github.io/GitHubTrendingRSS/weekly/all.xml';
+    await request(app)
+      .post('/api/proxy/trending-rss')
+      .send({ url: rssUrl })
+      .expect(200, '<?xml version="1.0"?><rss><channel></channel></rss>');
+
+    expect(validateUrlMock).toHaveBeenCalledWith(rssUrl);
+    expect(proxyRequestMock).toHaveBeenCalledOnce();
+    const options = proxyRequestMock.mock.calls[0][0];
+    expect(options.url).toBe(rssUrl);
+    expect(options.method).toBe('GET');
+    expect(options.preserveRawResponse).toBe(true);
+  });
+
+  it('rejects non-allowlisted trending RSS URLs', async () => {
+    const app = createTestApp();
+
+    await request(app)
+      .post('/api/proxy/trending-rss')
+      .send({ url: 'https://evil.example.com/GitHubTrendingRSS/weekly/all.xml' })
+      .expect(400, { error: 'URL not allowed for trending RSS proxy', code: 'HOST_NOT_ALLOWED' });
+
+    expect(proxyRequestMock).not.toHaveBeenCalled();
+  });
+
   it('proxies raw gist file URLs through the configured proxy as text', async () => {
     const app = createTestApp();
     proxyRequestMock.mockResolvedValueOnce({

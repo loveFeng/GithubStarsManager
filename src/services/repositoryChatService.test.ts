@@ -20,6 +20,7 @@ vi.mock('./aiService', () => ({
 }));
 
 vi.mock('./githubApiFactory', () => ({
+  isGitHubApiReady: () => true,
   createGitHubApiService: () => ({
     getRepositoryTree: mocks.getRepositoryTree,
     getRepositoryFile: mocks.getRepositoryFile,

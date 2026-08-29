@@ -9,6 +9,7 @@ import type {
   ToolEvidence,
 } from '../../../types/repositoryChat';
 import { runRepositoryChatTurn } from '../../../services/repositoryChatService';
+import { isGitHubApiReady } from '../../../services/githubApiFactory';
 import { repositoryChatSessionRepository } from '../repositories/sessionRepository';
 
 const createId = (prefix: string): string => {
@@ -47,12 +48,14 @@ export const useRepositoryChat = ({
   const {
     language,
     githubToken,
+    githubAuthViaBackend,
     aiConfigs,
     activeAIConfig,
     repositoryChatSettings,
   } = useAppStore(useShallow((state) => ({
     language: state.language,
     githubToken: state.githubToken,
+    githubAuthViaBackend: state.githubAuthViaBackend,
     aiConfigs: state.aiConfigs,
     activeAIConfig: state.activeAIConfig,
     repositoryChatSettings: state.repositoryChatSettings,
@@ -102,7 +105,7 @@ export const useRepositoryChat = ({
   const aiConfig = aiConfigs.find((config) => config.id === resolvedConfigId) ?? null;
   const unavailableReason = !repositoryChatSettings.enabled
     ? (language === 'zh' ? '仓库问答已在 AI 配置中关闭。' : 'Repository chat is disabled in AI settings.')
-    : !githubToken
+    : !isGitHubApiReady()
       ? (language === 'zh' ? '请先配置 GitHub token。' : 'Configure a GitHub token first.')
       : !aiConfig
         ? (language === 'zh' ? '请先配置有效的活动 AI 服务。' : 'Configure an active AI service first.')
@@ -249,7 +252,7 @@ export const useRepositoryChat = ({
       abortControllerRef.current = null;
       setIsSending(false);
     }
-  }, [aiConfig, githubToken, isSending, language, messages, onMessagesChange, onSessionChange, persistToolEvent, repository, repositoryChatSettings.agentBudget, repositoryChatSettings.maxToolsPerTurn, session, unavailableReason]);
+  }, [aiConfig, githubToken, githubAuthViaBackend, isSending, language, messages, onMessagesChange, onSessionChange, persistToolEvent, repository, repositoryChatSettings.agentBudget, repositoryChatSettings.maxToolsPerTurn, session, unavailableReason]);
 
   const stop = useCallback(() => {
     abortControllerRef.current?.abort();

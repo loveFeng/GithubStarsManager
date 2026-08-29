@@ -3,11 +3,25 @@ import { backend } from './backendAdapter';
 import { GitHubApiService } from './githubApi';
 import { GitHubListsApiService } from './githubListsApi';
 
-/** Whether GitHub API calls can proceed (local PAT or backend-stored token). */
+type GitHubAccessState = {
+  githubToken: string | null;
+  githubAuthViaBackend: boolean;
+  user: unknown;
+};
+
+/**
+ * Whether the UI has GitHub access (local PAT or backend-held PAT).
+ * Prefer this over checking `githubToken` alone — web mode keeps the PAT on the server.
+ */
+export function hasGitHubAccess(state?: GitHubAccessState): boolean {
+  const s = state ?? useAppStore.getState();
+  if (s.githubToken) return true;
+  return !!(s.githubAuthViaBackend && s.user);
+}
+
+/** Whether GitHub API calls can proceed (local PAT or backend-stored token + live backend). */
 export function isGitHubApiReady(): boolean {
-  const state = useAppStore.getState();
-  if (state.githubToken) return true;
-  return !!(state.githubAuthViaBackend && state.user && backend.isAvailable);
+  return hasGitHubAccess() && (!!useAppStore.getState().githubToken || backend.isAvailable);
 }
 
 export function createGitHubApiService(token?: string | null): GitHubApiService {

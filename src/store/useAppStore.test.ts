@@ -672,6 +672,16 @@ describe('useAppStore auth localStorage mirror (Issue #259)', () => {
     expect(useAppStore.getState().backendApiSecret).toBeNull();
   });
 
+  it('revives backend GitHub auth when user is persisted without a local PAT', () => {
+    const normalized = normalizePersistedState(
+      { user, isAuthenticated: true, githubToken: null },
+      useAppStore.getState(),
+    );
+    expect(normalized.githubToken).toBeNull();
+    expect(normalized.githubAuthViaBackend).toBe(true);
+    expect(normalized.isAuthenticated).toBe(true);
+  });
+
   it('restores user profile from the mirror when the persisted snapshot lacks credentials', () => {
     // Mirror holds public profile only; tokens live in HttpOnly cookies / SQLite.
     window.localStorage.setItem(

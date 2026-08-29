@@ -6,7 +6,7 @@ import { useDialog } from '../../../hooks/useDialog';
 import { EmbeddingClient, VectorSearchService, findSimilarRepositories } from '../../../services/vectorSearchService';
 import { analyzeRepository, createFailedAnalysisResult } from '../../../services/aiAnalysisHelper';
 import { forceSyncToBackend } from '../../../services/autoSync';
-import { GitHubApiService } from '../../../services/githubApi';
+import { createGitHubApiService, isGitHubApiReady } from '../../../services/githubApiFactory';
 import { logger } from '../../../services/logger';
 import { applyAnalysisFailure, applyAnalysisSuccess } from '../application/repositoryPatches';
 
@@ -108,7 +108,7 @@ export const useRepositoryCardActions = ({
   }, [embeddingConfigs, activeEmbeddingConfig, vectorSearchConfig, vectorSearchStatus]);
 
   const analyze = useCallback(async () => {
-    if (!githubToken) {
+    if (!isGitHubApiReady()) {
       toast(
         language === 'zh'
           ? 'GitHub token 未找到，请重新登录。'
@@ -309,7 +309,7 @@ export const useRepositoryCardActions = ({
       });
       // Indexing enriches documents with README text in readme mode. Mirror that
       // source representation for card-level similarity without changing SearchBar.
-      const githubApi = githubToken ? new GitHubApiService(githubToken) : null;
+      const githubApi = isGitHubApiReady() ? createGitHubApiService() : null;
       const readmeFetcher = githubApi
         ? (owner: string, repo: string, signal?: AbortSignal) => githubApi.getRepositoryReadme(owner, repo, signal)
         : undefined;
@@ -359,7 +359,7 @@ export const useRepositoryCardActions = ({
   }, [repoId, toggleStoreReleaseSubscription]);
 
   const unstar = useCallback(async () => {
-    if (!githubToken) {
+    if (!isGitHubApiReady()) {
       toast(
         language === 'zh'
           ? '未找到 GitHub Token，请重新登录。'
@@ -386,7 +386,7 @@ export const useRepositoryCardActions = ({
 
     setIsUnstarring(true);
     try {
-      const githubApi = new GitHubApiService(githubToken);
+      const githubApi = createGitHubApiService();
       const [owner, repo] = repository.full_name.split('/');
       await githubApi.unstarRepository(owner, repo);
       deleteRepository(repository.id);
@@ -403,7 +403,7 @@ export const useRepositoryCardActions = ({
     } finally {
       setIsUnstarring(false);
     }
-  }, [confirm, deleteRepository, githubToken, language, repository, toast]);
+  }, [confirm, deleteRepository, language, repository, toast]);
 
   return useMemo(() => ({
     analyze,

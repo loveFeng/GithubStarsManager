@@ -8,7 +8,7 @@ import {
   needsReindex,
   VectorSearchService,
 } from '../../../services/vectorSearchService';
-import { GitHubApiService } from '../../../services/githubApi';
+import { createGitHubApiService, isGitHubApiReady } from '../../../services/githubApiFactory';
 import { LEGACY_EMBEDDING_FORMAT_VERSION, isKnownEmbeddingFormatVersion, useAppStore } from '../../../store/useAppStore';
 import { normalizeLicense } from '../../../utils/licenseFilter';
 
@@ -54,6 +54,7 @@ export const useVectorSearchActions = (): VectorSearchActions => {
     vectorSearchConfig: store.vectorSearchConfig,
     repositories: store.repositories,
     githubToken: store.githubToken,
+    githubAuthViaBackend: store.githubAuthViaBackend,
     setVectorSearchStatus: store.setVectorSearchStatus,
     setVectorIndexingState: store.setVectorIndexingState,
     setVectorSearchConfig: store.setVectorSearchConfig,
@@ -111,12 +112,12 @@ export const useVectorSearchActions = (): VectorSearchActions => {
     if (!activeConfig) return null;
     const embeddingClient = new EmbeddingClient({ ...activeConfig, ...draft, isActive: activeConfig.isActive });
     const vectorService = new VectorSearchService({ workerUrl: draft.workerUrl, authToken: draft.authToken });
-    const githubApi = state.githubToken ? new GitHubApiService(state.githubToken) : null;
+    const githubApi = isGitHubApiReady() ? createGitHubApiService() : null;
     const readmeFetcher = githubApi
       ? (owner: string, repository: string, signal?: AbortSignal) => githubApi.getRepositoryReadme(owner, repository, signal)
       : undefined;
     return { embeddingClient, vectorService, readmeFetcher };
-  }, [activeConfig, state.githubToken]);
+  }, [activeConfig, state.githubToken, state.githubAuthViaBackend]);
 
   const runIndex = useCallback(async (draft: VectorIndexDraft, incremental: boolean) => {
     const clients = createClients(draft);

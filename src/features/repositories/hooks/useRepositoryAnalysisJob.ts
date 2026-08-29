@@ -5,7 +5,7 @@ import { useAppStore } from '../../../store/useAppStore';
 import { useDialog } from '../../../hooks/useDialog';
 import { AIAnalysisOptimizer, type AnalysisResult } from '../../../services/aiAnalysisOptimizer';
 import { AIService } from '../../../services/aiService';
-import { GitHubApiService } from '../../../services/githubApi';
+import { createGitHubApiService, isGitHubApiReady } from '../../../services/githubApiFactory';
 import { forceSyncToBackend } from '../../../services/autoSync';
 import { buildCategoryHints, resolveCategoryAssignment } from '../../../utils/categoryUtils';
 import { applyAnalysisFailure, applyAnalysisSuccess } from '../application/repositoryPatches';
@@ -56,7 +56,6 @@ export const useRepositoryAnalysisJob = ({
   allCategories,
 }: UseRepositoryAnalysisJobOptions): RepositoryAnalysisJob => {
   const {
-    githubToken,
     aiConfigs,
     activeAIConfig,
     language,
@@ -64,7 +63,6 @@ export const useRepositoryAnalysisJob = ({
     setLoading,
     setAnalysisProgress,
   } = useAppStore(useShallow((state) => ({
-    githubToken: state.githubToken,
     aiConfigs: state.aiConfigs,
     activeAIConfig: state.activeAIConfig,
     language: state.language,
@@ -155,7 +153,7 @@ export const useRepositoryAnalysisJob = ({
   }: RunRepositoryAnalysisOptions) => {
     if (isRunningRef.current) return false;
 
-    if (!githubToken) {
+    if (!isGitHubApiReady()) {
       toast(language === 'zh' ? 'GitHub token 未找到，请重新登录。' : 'GitHub token not found. Please login again.', 'error');
       return false;
     }
@@ -223,7 +221,7 @@ export const useRepositoryAnalysisJob = ({
     let failedCount = 0;
 
     try {
-      const githubApi = new GitHubApiService(githubToken);
+      const githubApi = createGitHubApiService();
       const aiService = new AIService(activeConfig, language);
       const categoryNames = allCategories.filter((category) => category.id !== 'all').map((category) => category.name);
       const aiCategoryHints = buildCategoryHints(allCategories);
@@ -314,7 +312,7 @@ export const useRepositoryAnalysisJob = ({
         resetVisibleState();
       }
     }
-  }, [aiConfigs, activeAIConfig, allCategories, confirm, githubToken, language, resetVisibleState, setAnalysisProgress, setLoading, t, toast, updateRepository]);
+  }, [aiConfigs, activeAIConfig, allCategories, confirm, language, resetVisibleState, setAnalysisProgress, setLoading, t, toast, updateRepository]);
 
   return useMemo(() => ({
     run,

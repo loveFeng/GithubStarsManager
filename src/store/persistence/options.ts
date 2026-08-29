@@ -23,9 +23,10 @@ export const appPersistenceOptions: PersistOptions<AppStoreState, PersistedAppSt
   version: 12,
   storage: debouncedPersistStorage as PersistStorage<PersistedAppState>,
 partialize: (state) => ({
-  // 持久化用户信息和认证状态
+  // 持久化用户信息和认证状态（PAT 本体可为空；网页模式用 githubAuthViaBackend）
   user: state.user,
   githubToken: state.githubToken,
+  githubAuthViaBackend: state.githubAuthViaBackend,
   isAuthenticated: state.isAuthenticated,
 
   // 持久化仓库数据

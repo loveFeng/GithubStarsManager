@@ -2,7 +2,7 @@ import { useCallback } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../../../store/useAppStore';
 import { useDialog } from '../../../hooks/useDialog';
-import { createGitHubListsApiService } from '../../../services/githubApiFactory';
+import { createGitHubListsApiService, isGitHubApiReady } from '../../../services/githubApiFactory';
 
 interface UseStarSyncActionsOptions {
   t: (zh: string, en: string) => string;
@@ -14,15 +14,14 @@ export interface StarSyncActions {
 
 /** Encapsulates the confirmed GitHub Lists synchronization workflow. */
 export const useStarSyncActions = ({ t }: UseStarSyncActionsOptions): StarSyncActions => {
-  const { githubToken, pushCategoriesToLists, setListsPushError } = useAppStore(useShallow((state) => ({
-    githubToken: state.githubToken,
+  const { pushCategoriesToLists, setListsPushError } = useAppStore(useShallow((state) => ({
     pushCategoriesToLists: state.pushCategoriesToLists,
     setListsPushError: state.setListsPushError,
   })));
   const { confirm } = useDialog();
 
   const push = useCallback(async () => {
-    if (!githubToken) {
+    if (!isGitHubApiReady()) {
       setListsPushError(t('未登录 GitHub，请先连接', 'Not connected to GitHub yet'));
       return;
     }
@@ -43,8 +42,8 @@ export const useStarSyncActions = ({ t }: UseStarSyncActionsOptions): StarSyncAc
       { type: 'warning' },
     );
     if (!confirmed) return;
-    await pushCategoriesToLists(createGitHubListsApiService(githubToken));
-  }, [confirm, githubToken, pushCategoriesToLists, setListsPushError, t]);
+    await pushCategoriesToLists(createGitHubListsApiService());
+  }, [confirm, pushCategoriesToLists, setListsPushError, t]);
 
   return { pushCategoriesToLists: push };
 };

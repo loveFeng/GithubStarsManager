@@ -4,7 +4,7 @@ import type { Category, Repository } from '../../../types';
 import { useAppStore } from '../../../store/useAppStore';
 import { useDialog } from '../../../hooks/useDialog';
 import { forceSyncToBackend } from '../../../services/autoSync';
-import { GitHubApiService } from '../../../services/githubApi';
+import { createGitHubApiService, isGitHubApiReady } from '../../../services/githubApiFactory';
 import { computeCustomCategory, getAICategory, getDefaultCategory } from '../../../utils/categoryUtils';
 import {
   applyCategoryAssignment,
@@ -50,7 +50,6 @@ export const useBulkRepositoryActions = ({
   allCategories,
 }: UseBulkRepositoryActionsOptions): BulkRepositoryActions => {
   const {
-    githubToken,
     language,
     updateRepository,
     deleteRepository,
@@ -58,7 +57,6 @@ export const useBulkRepositoryActions = ({
     batchUnsubscribeReleases,
     releaseSubscriptions,
   } = useAppStore(useShallow((state) => ({
-    githubToken: state.githubToken,
     language: state.language,
     updateRepository: state.updateRepository,
     deleteRepository: state.deleteRepository,
@@ -71,7 +69,7 @@ export const useBulkRepositoryActions = ({
   const t = useCallback((zh: string, en: string) => language === 'zh' ? zh : en, [language]);
 
   const unstar = useCallback(async (repositories: Repository[]) => {
-    if (!githubToken) {
+    if (!isGitHubApiReady()) {
       toast(language === 'zh' ? 'GitHub token 未找到，请重新登录。' : 'GitHub token not found. Please login again.', 'error');
       return false;
     }
@@ -85,7 +83,7 @@ export const useBulkRepositoryActions = ({
     );
     if (!confirmed) return false;
 
-    const githubApi = new GitHubApiService(githubToken);
+    const githubApi = createGitHubApiService();
     const successIds: number[] = [];
     const failedRepositories: string[] = [];
 
@@ -113,7 +111,7 @@ export const useBulkRepositoryActions = ({
       failedRepositories.length > 0 ? 'error' : 'success',
     );
     return true;
-  }, [confirm, deleteRepository, githubToken, language, t, toast]);
+  }, [confirm, deleteRepository, language, t, toast]);
 
   const restore = useCallback(async (repositories: Repository[], config: RepositoryRestoreConfig) => {
     if (repositories.length === 0) return false;
